@@ -1,0 +1,14 @@
+**/Debug
+**/build
+**/.cache
+**/.settings
+**/.vs
+**/.vscode
+**/cmake
+*.bin
+*.hex
+*.elf
+*.obj
+*.o
+
+
