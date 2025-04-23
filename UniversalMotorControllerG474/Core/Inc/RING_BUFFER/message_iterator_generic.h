@@ -1,8 +1,9 @@
-#ifndef MESSAGE_ITERATOR_GENERIC_H
-#define MESSAGE_ITERATOR_GENERIC_H
+#ifndef MESSAGE_ITERATORGENERIC_H
+#define MESSAGE_ITERATORGENERIC_H
 #include <cstdint>
 #include <cstring>
-#include "MessageStructGeneric.h"
+#include "message_struct_generic.h"
+
 
 
 //template<typename H> class MessageIteratorGenericBase;
@@ -21,11 +22,11 @@ public:
 	};
 
 public:
-	virtual void LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived) = 0;
+	virtual void LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived) = 0;
 	MessageIteratorGenericBase<H> operator++(int);
 
-	MessageStructGeneric<void*,H>* GetMessagePtr();
-	MessageStructGeneric<void*,H>& operator*();
+	MessageGeneric<void*,H>* GetMessagePtr();
+	MessageGeneric<void*,H>& operator*();
 
 	bool IsHeaderValid();
 
@@ -129,19 +130,16 @@ template<typename H> void MessageIteratorGenericBase<H>::ResetIterator()
 
 
 template<typename H> 
-MessageStructGeneric<void*,H>& MessageIteratorGenericBase<H>::operator*() 
+MessageGeneric<void*,H>& MessageIteratorGenericBase<H>::operator*() 
 { 
-    //qDebug() << " TAKE MESSAGE PTR: " << (PtrMessageBegin - PtrBufferBegin);
-	return *reinterpret_cast<MessageStructGeneric<void*,H>* >(PtrMessageBegin); 
+	return *reinterpret_cast<MessageGeneric<void*,H>* >(PtrMessageBegin); 
 }
 template<typename H> 
-MessageStructGeneric<void*,H>* MessageIteratorGenericBase<H>::GetMessagePtr() { return reinterpret_cast<MessageStructGeneric<void*,H>* >(PtrMessageBegin); }
+MessageGeneric<void*,H>* MessageIteratorGenericBase<H>::GetMessagePtr() { return reinterpret_cast<MessageGeneric<void*,H>* >(PtrMessageBegin); }
 
 
 template<typename H>
-void MessageIteratorGenericBase<H>::PrintIterator()
-{
-}
+void MessageIteratorGenericBase<H>::PrintIterator() { }
 
 template<typename H>
 void MessageIteratorGenericBase<H>::SwitchToNext()
@@ -166,19 +164,17 @@ class MessageIteratorGeneric : public MessageIteratorGenericBase<H>
 public:
     MessageIteratorGeneric(): MessageIteratorGenericBase<H>() {};
     MessageIteratorGeneric(uint8_t* STORAGE, std::size_t ChunkSize, std::size_t NumberChunks) :
-	MessageIteratorGenericBase<H>(STORAGE, ChunkSize, NumberChunks)
-	{
-	};
+	MessageIteratorGenericBase<H>(STORAGE, ChunkSize, NumberChunks) { };
 
 public:
-	void LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived);
+	void LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived);
     MessageIteratorGeneric<H,Mode> operator++(int) { this->SwitchToNext(); return* this; };
 };
 
 
     //===============================================================================================
 	template<typename H, IteratorMode Mode>
-	void MessageIteratorGeneric<H,Mode>::LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived)
+	void MessageIteratorGeneric<H,Mode>::LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived)
 	{
 	if(BytesCountReceived < this->BufferChunkSize) return;
 
@@ -199,19 +195,17 @@ class MessageIteratorGeneric<H,IteratorMode::Chunked> : public MessageIteratorGe
 public:
     MessageIteratorGeneric(): MessageIteratorGenericBase<H>() {};
     MessageIteratorGeneric(uint8_t* STORAGE, std::size_t ChunkSize, std::size_t NumberChunks) :
-	MessageIteratorGenericBase<H>(STORAGE, ChunkSize, NumberChunks)
-	{
-	};
+	MessageIteratorGenericBase<H>(STORAGE, ChunkSize, NumberChunks) { };
 
 public:
-	void LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived);
+	void LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived);
 
     MessageIteratorGeneric<H,IteratorMode::Chunked> operator++(int) { this->SwitchToNext(); return* this; };
 };
 
     //===============================================================================================
 	template<typename H>
-	void MessageIteratorGeneric<H,IteratorMode::Chunked>::LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived)
+	void MessageIteratorGeneric<H,IteratorMode::Chunked>::LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived)
 	{
 	if(!this->GetHeader(DataSourceBuffer).isValid()) return;
 
@@ -236,7 +230,7 @@ public:
 	};
 
 public:
-	void LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived);
+	void LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived);
 
     MessageIteratorGeneric<H,IteratorMode::ChunkedContinous> operator++(int) { this->SwitchToNext(); return* this; };
 };
@@ -244,24 +238,21 @@ public:
 
     //===============================================================================================
 	template<typename H>
-	void MessageIteratorGeneric<H,IteratorMode::ChunkedContinous>::LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived)
+	void MessageIteratorGeneric<H,IteratorMode::ChunkedContinous>::LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived)
 	{
 	auto& PtrMessage = this->PtrMessageBegin;
 	int MessageBytesAvailable = this->DataAvailable();
-	//qDebug() << "LOAD DATA SIZE: " << BytesCountReceived << " AVAILABLE: " << MessageBytesAvailable;
 	int BytesToLoad = 0;
 
 	if(BytesCountReceived <= 0) return;
 	if(BytesCountReceived <= sizeof(H))  
 	{ 
-		//qDebug() << "LOAD PART HEADER: " << BytesCountReceived;
 		std::memcpy(this->PtrDataEnd,DataSourceBuffer, BytesCountReceived); 
 					this->PtrDataEnd += BytesCountReceived; return;
 	}
 
 	if(MessageBytesAvailable < sizeof(H) && MessageBytesAvailable != 0) 
 	{
-		//qDebug() << "LOAD REMAIN FROM HEADER: " << sizeof(H) - MessageBytesAvailable;
 		BytesToLoad = (sizeof(H) - MessageBytesAvailable); 
 		std::memcpy(this->PtrDataEnd,DataSourceBuffer, BytesToLoad);
 					this->PtrDataEnd += BytesToLoad; 
@@ -283,10 +274,8 @@ public:
 				 this->PtrDataEnd = this->PtrMessageBegin; return;
 	}
 
-	//qDebug() << "WAIT MESSAGE SIZE: " << this->MessageSize(DataSourceBuffer) << this->MessageSize(PtrMessage);
 	if(BytesToLoad > BytesCountReceived ) 
 	{ 
-		//qDebug() << "LOAD PART MESSAGE: " << BytesCountReceived;
 		std::memcpy(this->PtrDataEnd,DataSourceBuffer, BytesCountReceived); 
 					this->PtrDataEnd += BytesCountReceived; 
 					return; //WE DIDNT GET FULL MESSAGE HERE
@@ -294,7 +283,6 @@ public:
 
 	if(BytesToLoad <= BytesCountReceived)
 	{
-		//qDebug() << "LOAD FULL MESSAGE: " << BytesToLoad;
 		std::memcpy(this->PtrDataEnd,DataSourceBuffer, BytesToLoad); 
 
 		this->MessageNumber++;                                
@@ -307,7 +295,6 @@ public:
 	{
 		this->PtrMessageBegin  = this->PtrBufferBegin; 
 	}
-	//qDebug() << "                      ==";
 
 	LoadData(DataSourceBuffer + BytesToLoad, BytesCountReceived - BytesToLoad);
 	}
@@ -324,7 +311,7 @@ public:
 	};
 
 public:
-	void LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived);
+	void LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived);
 
     MessageIteratorGeneric<H,IteratorMode::Continous> operator++(int); 
 protected:
@@ -371,7 +358,7 @@ protected:
 
     //===============================================================================================
 	template<typename H>
-	void MessageIteratorGeneric<H,IteratorMode::Continous>::LoadData(uint8_t* DataSourceBuffer, uint8_t BytesCountReceived)
+	void MessageIteratorGeneric<H,IteratorMode::Continous>::LoadData(uint8_t* DataSourceBuffer, uint16_t BytesCountReceived)
 	{
 	std::memcpy(this->PtrDataEnd,DataSourceBuffer,BytesCountReceived); this->PtrDataEnd += BytesCountReceived;
 
@@ -394,5 +381,5 @@ protected:
 	}
 //====================================================================================================
 
-#endif //MESSAGE_ITERATOR_GENERIC_H
+#endif //MESSAGE_ITERATORGENERIC_H
 

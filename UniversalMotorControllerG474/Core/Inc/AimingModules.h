@@ -2,7 +2,7 @@
 #define GENERIC_AIMING_CONTROL_H
 #include <stdint.h>
 #include <cmsis_os2.h>
-#include "RING_BUFFER/CommandStructures.h"
+#include "RING_BUFFER/message_command_structures.h"
 #include <utility>
 #include "main.h"
 #include <queue>
@@ -142,7 +142,7 @@ class AimingDinamicClass : public PassValueClass<V>
   V     OutputValue = 0;
   V NextOutputValue = 0;
 
-  AimStateStruct AimState; //AIM STATE IN DAC VALUES, AND TIMER PERIOD TICK SCALE
+  MessageAiming AimState; //AIM STATE IN DAC VALUES, AND TIMER PERIOD TICK SCALE
 
   void SetValue(const V& Value) { AimState.Position = Value; NextOutputValue = AimState.Position; }
   const V& GetValue() 
@@ -155,11 +155,11 @@ class AimingDinamicClass : public PassValueClass<V>
                return OutputValue;
   }
 
-  void SetState(const AimStateStruct& NewState) { AimState.Position = NewState.Position;
+  void SetState(const MessageAiming& NewState) { AimState.Position = NewState.Position;
                                                   AimState.Velocity = NewState.Velocity;
                                                   AimState.Acceleration = NewState.Acceleration;
                                                   NextOutputValue = AimState.Position;} // POS IN DAC
-  friend AimingDinamicClass& operator|(AimStateStruct& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
+  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
 
 };
 
@@ -178,7 +178,7 @@ class AimingDinamicClass<V,AimingType::PID_VELOCITY> : public PassValueClass<V>
   V OutputVelocity = 0;
   V OutputValue = 0; //OUTPUT POS IN DAC
   
-  AimStateStruct AimState;
+  MessageAiming AimState;
   AimingPIDClass<1> PID;
 
   void SetValue(const V& Value) { AimState.Position = Value - 200;   //INPUT SIGNAL IN PIX
@@ -189,8 +189,8 @@ class AimingDinamicClass<V,AimingType::PID_VELOCITY> : public PassValueClass<V>
 
   const V& GetValue() { OutputValue += OutputVelocity*StepPeriod; return OutputValue; }
 
-  void SetState(const AimStateStruct& NewState) { AimState = NewState; SetValue(AimState.Position);}
-  friend AimingDinamicClass& operator|(AimStateStruct& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
+  void SetState(const MessageAiming& NewState) { AimState = NewState; SetValue(AimState.Position);}
+  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
 
 
 };
@@ -204,12 +204,13 @@ class AimingDinamicClass<V,Type,2> : public PassCoordClass<V>
   AimingDinamicClass<V,Type,1> AimingModule1;
   AimingDinamicClass<V,Type,1> AimingModule2;
 
-  void SetState(const AimStateStruct& NewState) { Modules[CurrentChannel]->SetState(NewState); 
+  void SetState(const MessageAiming& NewState) { Modules[CurrentChannel]->SetState(NewState);
                                                           CurrentChannel++; 
                                    if(CurrentChannel > 1) CurrentChannel = 0;
   };
-  //friend AimingDinamicClass<V,Type,2>& operator|(AimStateStruct& State , AimingDinamicClass<V,Type,2>& Receiver) { Receiver.SetState(State);  return Receiver;}
-  friend AimingDinamicClass& operator|(AimStateStruct& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
+  //friend AimingDinamicClass<V,Type,2>& operator|(MessageAiming& State , AimingDinamicClass<V,Type,2>& Receiver) { Receiver.SetState(State);  return Receiver;}
+  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver)
+  { Receiver.SetState(State);  return Receiver;}
 
 
   void SetCoord(const std::pair<V,V>& CoordState) { AimingModule1.SetValue(CoordState.first); 

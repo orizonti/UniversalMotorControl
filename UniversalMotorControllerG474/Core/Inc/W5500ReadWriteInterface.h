@@ -9,6 +9,7 @@
 #define INC_W5500READWRITEINTERFACE_H_
 
 
+#include "stm32g4xx_hal.h"
 #include "socket.h"
 #include <stdio.h>
 #include <string.h>

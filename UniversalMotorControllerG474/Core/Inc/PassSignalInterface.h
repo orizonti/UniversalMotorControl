@@ -12,8 +12,8 @@ class PassValueClass
       virtual void SetValue(const T& Value) = 0;
   virtual const T& GetValue() = 0;
 
-         PassValueClass& operator|(PassValueClass& Receiver) { Receiver.SetValue(this->GetValue()); return Receiver;}
-                    void operator|(T& OutputValue) { OutputValue = this->GetValue();}
+                    void operator|(T& OutputValue)          { OutputValue = this->GetValue();}
+         PassValueClass& operator|(PassValueClass& Receiver)           { Receiver.SetValue(this->GetValue()); return Receiver;}
   friend PassValueClass& operator|(T& Value, PassValueClass& Receiver) { Receiver.SetValue(Value); return Receiver;}
 };
 
@@ -24,8 +24,8 @@ class PassCoordClass
                    virtual void SetCoord(const std::pair<T,T>& Value) = 0;
   virtual const std::pair<T,T>& GetCoord() = 0;
 
-         PassCoordClass& operator|(PassCoordClass& Receiver) { Receiver.SetCoord(this->GetCoord()); return Receiver;}
                     void operator|(std::pair<T,T>& OutputCoord) { OutputCoord = this->GetCoord();}
+         PassCoordClass& operator|(PassCoordClass& Receiver)    { Receiver.SetCoord(this->GetCoord()); return Receiver;}
   friend PassCoordClass& operator|(std::pair<T,T>& Coord, PassCoordClass& Receiver) { Receiver.SetCoord(Coord); return Receiver;}
 };
 
