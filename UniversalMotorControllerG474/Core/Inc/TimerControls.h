@@ -27,13 +27,14 @@ class TimerControl: public PassValueClass<uint16_t>
 };
 
 //======================================================================
-template<int NUM = 1>
+template<int NUM = 1, typename OWNER_TYPE = void*>
 class TimerSoft
 {
   public:
 
   static void InitTimer(void (timerCallback)(void*), uint16_t* param = nullptr, osTimerType_t RunType = osTimerPeriodic)
   {
+  if(isTimerExist) eprintf("[ TIMER SOFT ALREADY EXISTS ] !!! \r\n");
   if(isTimerExist) return; isTimerExist = true;
   
   timerElapsed = false;
@@ -51,9 +52,9 @@ class TimerSoft
   static void timerTickCallback(void* argument) { timerElapsed = true; }; 
 };
 
-template<int NUM> bool      TimerSoft<NUM>::isTimerExist = false;
-template<int NUM> bool      TimerSoft<NUM>::timerElapsed = false;
-template<int NUM> osTimerId TimerSoft<NUM>::timerLinearCalibrationID;
+template<int NUM, typename OWNER_TYPE> bool      TimerSoft<NUM, OWNER_TYPE>::isTimerExist = false;
+template<int NUM, typename OWNER_TYPE> bool      TimerSoft<NUM, OWNER_TYPE>::timerElapsed = false;
+template<int NUM, typename OWNER_TYPE> osTimerId TimerSoft<NUM, OWNER_TYPE>::timerLinearCalibrationID;
 //======================================================================
 
 #endif //GENERIC_TIMER_CONTROL_H

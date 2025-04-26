@@ -42,16 +42,16 @@ private:
 struct MessageCalibration
 {
     public:
-    uint16_t  Command = 0xA1;
-    uint16_t  Channel = 1;
-    uint16_t  StepSize      = 1;
-    uint16_t  Reserve1      = 1;
-    uint16_t  Reserve2      = 1;
-    uint16_t  MeasureTime   = 1;
+    uint16_t  NodeType    = 0xA0;
+    uint16_t  Command     = 0xA1;
+    uint16_t  Channel     = 1;
+    uint16_t  Amplitude   = 1;
+
+    uint16_t  PeriodProcess = 1;
+    uint16_t  TimeMeasure   = 1;
     uint16_t  NumberSteps   = 1;
-    uint16_t  Position   = 1;
-    //uint64_t  Reserve3 = 0;
-    //uint64_t  Reserve4 = 0;
+    uint16_t  Reserve3      = 1;
+
 };
 
 struct MessagePositionState

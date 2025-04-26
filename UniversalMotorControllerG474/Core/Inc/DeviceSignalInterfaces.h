@@ -18,10 +18,10 @@ extern UART_HandleTypeDef huart3;
 #define DAC_SPI_8550 3
 
 template<typename DEV_T, typename V, int N_CHAN = 1, int TYPE = DAC_INTERNAL>
-class DeviceSignalControl : public PassValueClass<V> {
+class DeviceADCControl : public PassValueClass<V> {
 
 public:
-    DeviceSignalControl(DEV_T& DeviceControl){};
+    DeviceADCControl(DEV_T& DeviceControl){};
 	void SetValue(V Value) {};
 	void Init(){};
 private:
@@ -32,10 +32,10 @@ private:
 //DAC_INTERNAL
 
 template<typename V>
-class DeviceSignalControl<DAC_HandleTypeDef,V,1, DAC_INTERNAL> : public PassValueClass<V> 
+class DeviceADCControl<DAC_HandleTypeDef,V,1, DAC_INTERNAL> : public PassValueClass<V> 
 {
 public:
-    DeviceSignalControl(DAC_HandleTypeDef& DeviceControl, int ChannelNumber) {Device = &DeviceControl; Channel = ChannelNumber;};
+    DeviceADCControl(DAC_HandleTypeDef& DeviceControl, int ChannelNumber) {Device = &DeviceControl; Channel = ChannelNumber;};
 	void SetValue(const V& Value) { HAL_DAC_SetValue(Device,Channel,DAC_ALIGN_12B_R,Value);}
     const V& GetValue() { return OutputSignal;}
 	void Init() { HAL_DAC_Start(Device,Channel); };
@@ -47,10 +47,10 @@ private:
 
 
 template<typename V>
-class DeviceSignalControl<DAC_HandleTypeDef,V,2, DAC_INTERNAL> : public PassCoordClass<V> 
+class DeviceADCControl<DAC_HandleTypeDef,V,2, DAC_INTERNAL> : public PassCoordClass<V> 
 {
 public:
-    DeviceSignalControl(DAC_HandleTypeDef& DeviceControl) {Device = &DeviceControl;};
+    DeviceADCControl(DAC_HandleTypeDef& DeviceControl) {Device = &DeviceControl;};
 
 	void SetValue(const V& Output, uint8_t Channel) 
 	{
@@ -78,10 +78,10 @@ private:
 //===============================================================================================
 //DAC_8653
 template<typename V>
-class DeviceSignalControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653> : public PassValueClass<V> 
+class DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653> : public PassValueClass<V> 
 {
 public:
-    DeviceSignalControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect, uint8_t NumberChannel = 1) 
+    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect, uint8_t NumberChannel = 1) 
 	{
     Device = &DeviceControl;
 	CSPin = PinSelect;
@@ -120,18 +120,18 @@ private:
 };
 
 template<typename V>
-class DeviceSignalControl<SPI_HandleTypeDef,V,2,DAC_SPI_8653> : public PassCoordClass<V> 
+class DeviceADCControl<SPI_HandleTypeDef,V,2,DAC_SPI_8653> : public PassCoordClass<V> 
 {
 public:
-    DeviceSignalControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect) : 
+    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect) : 
     Channel1{DeviceControl,PinSelect,1},
     Channel2{DeviceControl,PinSelect,2}
 	{
 	};
 
-    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel1;
-    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel2;
-	void Init() { DeviceSignalControl<SPI_HandleTypeDef,V,1>::Init(); };
+    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel1;
+    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel2;
+	void Init() { DeviceADCControl<SPI_HandleTypeDef,V,1>::Init(); };
 
 	void SetCoord(const std::pair<V,V>& Output) { Channel1.SetValue(Output.first); 
                                                   Channel2.SetValue(Output.second); }
@@ -142,7 +142,7 @@ public:
     std::pair<V,V> OutputSignal;
 };
 
-template<typename V> void DeviceSignalControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653>::Init()
+template<typename V> void DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653>::Init()
 {
   if(FLAG_INIT_DONE) return;
   eprintf("[ EXTERNAL DAC INIT START ] \r\n");
@@ -184,11 +184,11 @@ template<typename V> void DeviceSignalControl<SPI_HandleTypeDef,V,1, DAC_SPI_865
   eprintf("[ EXTERNAL DAC INIT END ] \r\n");
 };
 
-template<typename V> SPI_HandleTypeDef*                DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::Device = 0;
-template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::CSPin;
-template<typename V> bool    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::FLAG_INIT_DONE = false;
-template<typename V> uint8_t DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransferBuffer[3];
-template<typename V> bool    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransmissionEndFlag;
+template<typename V> SPI_HandleTypeDef*                DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::Device = 0;
+template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::CSPin;
+template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::FLAG_INIT_DONE = false;
+template<typename V> uint8_t DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransferBuffer[3];
+template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransmissionEndFlag;
 
 //DAC_8653
 //===============================================================================================
@@ -196,10 +196,10 @@ template<typename V> bool    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8
 //================================================================================
 //DAC_8550
 template<typename V>
-class DeviceSignalControl<SPI_HandleTypeDef,V,1, DAC_SPI_8550> : public PassValueClass<V> 
+class DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8550> : public PassValueClass<V> 
 {
 public:
-    DeviceSignalControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect)
+    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect)
 	{
     Device = &DeviceControl;
 	CSPin = PinSelect;
@@ -238,18 +238,18 @@ private:
 };
 
 template<typename V>
-class DeviceSignalControl<SPI_HandleTypeDef,V,2, DAC_SPI_8550> : public PassCoordClass<V>
+class DeviceADCControl<SPI_HandleTypeDef,V,2, DAC_SPI_8550> : public PassCoordClass<V>
 {
 public:
-    DeviceSignalControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect,
+    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect,
     		            SPI_HandleTypeDef& DeviceControl2, std::pair<GPIO_TypeDef*,uint16_t> PinSelect2) :
     Channel1{DeviceControl,PinSelect},
     Channel2{DeviceControl2,PinSelect2}
 	{
 	};
 
-    DeviceSignalControl<SPI_HandleTypeDef,V,1> Channel1;
-    DeviceSignalControl<SPI_HandleTypeDef,V,1> Channel2;
+    DeviceADCControl<SPI_HandleTypeDef,V,1> Channel1;
+    DeviceADCControl<SPI_HandleTypeDef,V,1> Channel2;
 	void Init() { };
 
 	void SetCoord(const std::pair<V,V>& Output) { Channel1.SetValue(Output.first); Channel2.SetValue(Output.second); }
@@ -261,18 +261,18 @@ private:
     std::pair<V,V> CurrentOutput{0,0};
 };
 
-template<typename V> SPI_HandleTypeDef*                DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::Device = 0;
-template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::CSPin;
-template<typename V> bool    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::FLAG_INIT_DONE = false;
-template<typename V> uint8_t DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransferBuffer[3];
-template<typename V> bool    DeviceSignalControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransmissionEndFlag;
+template<typename V> SPI_HandleTypeDef*                DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::Device = 0;
+template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::CSPin;
+template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::FLAG_INIT_DONE = false;
+template<typename V> uint8_t DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransferBuffer[3];
+template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransmissionEndFlag;
 //DAC_8550_END
 //================================================================================
 
 //================================================================================
 //ADC_INPUT_DEVICE
 template<int N_CHAN = 1>
-class DeviceSignalInput : public PassValueClass<uint16_t> 
+class DeviceTypeADC : public PassValueClass<uint16_t> 
 {
     //template<int NUM> class TimerSoftExt : public TimerSoft<NUM> { };
 
@@ -281,7 +281,7 @@ public:
     enum StateSwitcher { SignalFillBottom = 0 , SignalFillTop, SignalFillEnd};
     #define SIGNAL_STORE_SIZE 48
 
-    explicit DeviceSignalInput(ADC_HandleTypeDef* DeviceControl, uint32_t Channel): 
+    explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl, uint32_t Channel): 
     Device(DeviceControl), DeviceChannel(Channel) 
     { 
     };
@@ -290,8 +290,6 @@ public:
 
     Mode Regim = ReadyMode; 
     StateSwitcher RegisterStateSwitcher = SignalFillBottom;
-
-    //TimerSoftExt<1> Timer;
 
     void WriteSignal(uint16_t* Buffer, int Size);
     bool WaitEndMeasure() 
@@ -303,7 +301,7 @@ public:
         {          TimeElapsed += 5; osDelay(5/portTICK_PERIOD_MS);
                 if(TimeElapsed > WaitTime) break;               }
 
-        Result = RegisterStateSwitcher == SignalFillEnd;
+        Result = (RegisterStateSwitcher == SignalFillEnd);
 
         HAL_ADC_Stop_DMA(Device);
         Regim = ReadyMode;
@@ -325,7 +323,6 @@ public:
     void SetModeReady() {SetModeContinous(false);};
     void SetModeContinous(bool OnOff)
     {
-
         Device->Init.DMAContinuousRequests = DISABLE;
         Device->Init.ContinuousConvMode = DISABLE;
 
@@ -354,24 +351,24 @@ private:
 };
 
 template<>
-class DeviceSignalInput<2> : public PassCoordClass<uint16_t> 
+class DeviceTypeADC<2> : public PassCoordClass<uint16_t> 
 {
 
 public:
-    explicit DeviceSignalInput(ADC_HandleTypeDef* DeviceControl, 
+    explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl, 
                                ADC_HandleTypeDef* DeviceControl2)
                                {
-                                Channel1 = new DeviceSignalInput<1>(DeviceControl, ADC_CHANNEL_1);
-                                Channel2 = new DeviceSignalInput<1>(DeviceControl2, ADC_CHANNEL_2);
+                                Channel1 = new DeviceTypeADC<1>(DeviceControl, ADC_CHANNEL_1);
+                                Channel2 = new DeviceTypeADC<1>(DeviceControl2, ADC_CHANNEL_2);
                                };
-    ~DeviceSignalInput() { delete Channel1; delete Channel2;}
+    ~DeviceTypeADC() { delete Channel1; delete Channel2;}
 
     void SetMeasureFrequency(uint32_t Devider) {Channel1->SetMeasureFrequency(Devider); 
                                                 Channel2->SetMeasureFrequency(Devider);};
 
     //bool WriteSignal();
 
-    void ExposeStateSwitchers(std::map<ADC_TypeDef*,DeviceSignalInput<1>::StateSwitcher* >& Switchers) 
+    void ExposeStateSwitchers(std::map<ADC_TypeDef*,DeviceTypeADC<1>::StateSwitcher* >& Switchers) 
     { 
          Channel1->ExposeStateSwitcher(Switchers);
          Channel2->ExposeStateSwitcher(Switchers);
@@ -403,13 +400,13 @@ public:
     }
 
 private:
-    DeviceSignalInput<1>* Channel1 = nullptr;
-    DeviceSignalInput<1>* Channel2 = nullptr;
+    DeviceTypeADC<1>* Channel1 = nullptr;
+    DeviceTypeADC<1>* Channel2 = nullptr;
 };
 
 
 template<int N_CHAN>
-void DeviceSignalInput<N_CHAN>::ReadSignal()
+void DeviceTypeADC<N_CHAN>::ReadSignal()
 {
     if(Regim == ReadyMode)
     {
@@ -426,7 +423,7 @@ void DeviceSignalInput<N_CHAN>::ReadSignal()
 
 
 template<int N_CHAN>
-void DeviceSignalInput<N_CHAN>::WriteSignal(uint16_t* Buffer, int Size) 
+void DeviceTypeADC<N_CHAN>::WriteSignal(uint16_t* Buffer, int Size) 
 { 
     Regim = ActiveMode;
     RegisterStateSwitcher = SignalFillBottom;
@@ -436,7 +433,7 @@ void DeviceSignalInput<N_CHAN>::WriteSignal(uint16_t* Buffer, int Size)
 };
 
 template<int N_CHAN>
-void DeviceSignalInput<N_CHAN>::ReinitDevice() 
+void DeviceTypeADC<N_CHAN>::ReinitDevice() 
 {
     ADC_MultiModeTypeDef multimode = {0};
     ADC_ChannelConfTypeDef sConfig = {0};
@@ -452,14 +449,14 @@ void DeviceSignalInput<N_CHAN>::ReinitDevice()
 
         HAL_ADC_DeInit(Device);
     if (HAL_ADC_Init(Device) != HAL_OK)                                 {eprintf(" ADC INIT FAIL"); Error_Handler(); } 
-    if (HAL_ADCEx_MultiModeConfigChannel(Device, &multimode) != HAL_OK) {eprintf(" ADC INIT FAIL"); Error_Handler(); } 
+    if (Device->Instance == ADC1) HAL_ADCEx_MultiModeConfigChannel(Device, &multimode);
     if (HAL_ADC_ConfigChannel(Device, &sConfig) != HAL_OK)              {eprintf(" ADC INIT FAIL"); Error_Handler(); } 
 
     HAL_ADCEx_Calibration_Start(Device,ADC_SINGLE_ENDED); 
 }
 
 template<int N_CHAN>
-void DeviceSignalInput<N_CHAN>::SetMeasureFrequency(uint32_t Devider) 
+void DeviceTypeADC<N_CHAN>::SetMeasureFrequency(uint32_t Devider) 
 {
 //DEVIDER = ADC_CLOCK_ASYNC_DIV16-256
 //ADC_CLOCK = MC_CLOCK/DEVIDER; NUMBER_OPS = 12+24.5 = 36.5;

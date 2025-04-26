@@ -115,8 +115,8 @@ const osMessageQueueAttr_t QueueMessagePositionState_attributes = {
   .name = "QueueMessagePosition"
 };
 
-std::map<SPI_TypeDef*,bool*> TransmissionFlagsSPI;
-std::map<ADC_TypeDef*,DeviceSignalInput<1>::StateSwitcher*> SignalReadStates;
+std::map<SPI_TypeDef*,bool*> FlagSwitchersSPI;
+std::map<ADC_TypeDef*,DeviceTypeADC<1>::StateSwitcher*> StateSwitchersADC;
 
 /* USER CODE END PV */
 
@@ -139,6 +139,7 @@ void RunTaskMeasure(void *argument);
 
 /* USER CODE BEGIN PFP */
 
+//=========================================================================================
 uint8_t ID1 = TypeRegister<MessageAimingDual>::RegisterType();
 uint8_t ID2 = TypeRegister<MessageCalibration>::RegisterType();
 uint8_t ID3 = TypeRegister<MessageCommand>::RegisterType();
@@ -151,36 +152,54 @@ uint8_t ID7 = TypeRegister<MessageCloseConnection>::RegisterType();
 
 //=========================================================================================
 bool FLAG_MEASURE_THREAD_SUSPEND = false;
-bool FLAG_DELAY_TEST = false;
-DeviceSignalInput<1> DeviceSignal1(&hadc1,ADC_CHANNEL_1);
-DeviceSignalInput<1> DeviceSignal2(&hadc2,ADC_CHANNEL_2);
 
-using InternalDACType = DeviceSignalControl<DAC_HandleTypeDef,uint16_t,1, DAC_INTERNAL>;
-using InternalDACDualType = DeviceSignalControl<DAC_HandleTypeDef,uint16_t,2, DAC_INTERNAL>;
+using DeviceTypeDACInternal     = DeviceADCControl<DAC_HandleTypeDef,uint16_t,1, DAC_INTERNAL>;
+using DeviceTypeDACInternalDual = DeviceADCControl<DAC_HandleTypeDef,uint16_t,2, DAC_INTERNAL>;
 
-using ExternalDACType = DeviceSignalControl<SPI_HandleTypeDef, uint16_t,1,DAC_SPI_8653> ;
-using ExternalDACDualType = DeviceSignalControl<SPI_HandleTypeDef, uint16_t,2,DAC_SPI_8653> ;
-
-
-//=========================================================================================
-InternalDACType InternalDACControlChannel1(hdac1,DAC_CHANNEL_1);
-InternalDACType InternalDACControlChannel2(hdac1,DAC_CHANNEL_2);
-
-InternalDACDualType InternalDACControl(hdac1);
-ExternalDACDualType ExternalDACControl(hspi3, std::make_pair(SPI3_CS_GPIO_Port, SPI3_CS_Pin));
-
-AimingControlClass<ExternalDACDualType>  ControlAiming{&ExternalDACControl}; 
-
-                             AimingFixedStepClass<2> AimingInterpolation;
-      AimingDinamicClass<float,AimingType::DIRECT,2> AimingProlong;
-AimingDinamicClass<float,AimingType::PID_VELOCITY,2> AimingLoopPID;
+using DeviceTypeDACExternal     = DeviceADCControl<SPI_HandleTypeDef, uint16_t,1,DAC_SPI_8653> ;
+using DeviceTypeDACExternalDual = DeviceADCControl<SPI_HandleTypeDef, uint16_t,2,DAC_SPI_8653> ;
 
 //=========================================================================================
 PassCoordTransform<float,uint16_t,SystemScaleSettings::ConvertPix_DAC> PixToDAC;
 MessageInternalMonitoring MessageMonitoringStatic;
 //=========================================================================================
+DeviceTypeADC<1> DeviceADC1(&hadc1,ADC_CHANNEL_1);
+DeviceTypeADC<1> DeviceADC2(&hadc2,ADC_CHANNEL_2);
 
-UDPConnectionInterface ConnectionControl;
+DeviceTypeDACInternal DeviceDACInternalChannel1(hdac1,DAC_CHANNEL_1);
+DeviceTypeDACInternal DeviceDACInternalChannel2(hdac1,DAC_CHANNEL_2);
+
+DeviceTypeDACInternalDual DeviceDACInternal(hdac1);
+DeviceTypeDACExternalDual DeviceDACExternal(hspi3, std::make_pair(SPI3_CS_GPIO_Port, SPI3_CS_Pin));
+
+DeviceTypeConnectionUDP ConnectionRemote;
+
+//=========================================================================================
+
+ModuleTypeAimingControl<DeviceTypeDACExternalDual>  ControlAiming{&DeviceDACExternal}; 
+
+ModuleTypeDelayMeasure<DeviceTypeConnectionUDP, DeviceTypeDACInternal, DeviceTypeDACInternal>
+                                              ModuleDelayMeasureConnection
+                                              { &ConnectionRemote,         //LOOP
+
+                                                &DeviceDACInternalChannel1, //LOOP  MONITOR
+                                                &DeviceDACInternalChannel2, //DELAY MONITOR
+                                              };
+
+ModuleTypeDelayMeasure<DeviceTypeDACExternal, DeviceTypeDACInternal, DeviceTypeDACInternal>
+                                              ModuleDelayMeasureControlLoop
+                                              { &DeviceDACExternal.Channel1, //LOOP
+
+                                                 &DeviceDACInternalChannel1, //LOOP  MONITOR
+                                                 &DeviceDACInternalChannel2, //DELAY MONITOR
+                                              };
+
+ModuleTypeResponceMeasure<DeviceTypeADC<1>, DeviceTypeDACInternal>
+                                              ModuleResponceMeasure
+                                              { &DeviceADC1, 
+                                                &DeviceDACInternalChannel1,
+                                              };
+//=========================================================================
 
 void PrintStartMessages()
 {
@@ -189,7 +208,7 @@ void PrintStartMessages()
   eprintf(" [ SCANATOR CONTROL ] \r\n");       HAL_Delay(100);
   eprintf(" [ SYS FREQ:  %d ] \r\n", SysFreq); HAL_Delay(100);
   eprintf(" [ ADC CHANNELS:  %d %d] \r\n", ADC_CHANNEL_1, ADC_CHANNEL_2); HAL_Delay(100);
-  eprintf(" [ ADC CHANNELS:  %d %d] \r\n", DeviceSignal1.DeviceChannel, DeviceSignal2.DeviceChannel); HAL_Delay(100);
+  eprintf(" [ ADC CHANNELS:  %d %d] \r\n", DeviceADC1.DeviceChannel, DeviceADC2.DeviceChannel); HAL_Delay(100);
 };
 /* USER CODE END PFP */
 
@@ -206,8 +225,8 @@ void TimerControlDirectISR()
 
 //    ControlSignalDAC.first = RemoteControlCommand.Channel1.Position;
 //    ControlSignalDAC.second = RemoteControlCommand.Channel1.Position;
-//    //ExternalDACControl.SetCoord(ControlSignal);
-//    InternalDACControl.SetCoord(ControlSignalDAC);
+//    //DeviceDACExternal.SetCoord(ControlSignal);
+//    DeviceDACInternal.SetCoord(ControlSignalDAC);
 }
 
 //GenericSignalControl* SignalControl;
@@ -256,13 +275,13 @@ int main(void)
 
   PrintStartMessages();
 
-  InternalDACControl.Init();
+  DeviceDACInternal.Init();
 
-  DeviceSignal1.Init();
-  DeviceSignal2.Init();
-  DeviceSignal1.ExposeStateSwitcher(SignalReadStates);
-  DeviceSignal2.ExposeStateSwitcher(SignalReadStates);
-  //ExternalDACControl.Init();
+  DeviceADC1.Init();
+  DeviceADC2.Init();
+  DeviceADC1.ExposeStateSwitcher(StateSwitchersADC);
+  DeviceADC2.ExposeStateSwitcher(StateSwitchersADC);
+  //DeviceDACExternal.Init();
 
   /* USER CODE END 2 */
 
@@ -300,7 +319,7 @@ int main(void)
   TaskControlHandle = osThreadNew(RunTaskControl, NULL, &TaskControl_attributes);
 
   /* creation of TaskMeasure */
-  //TaskMeasureHandle = osThreadNew(RunTaskMeasure, NULL, &TaskMeasure_attributes);
+  TaskMeasureHandle = osThreadNew(RunTaskMeasure, NULL, &TaskMeasure_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -405,7 +424,8 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.DMAContinuousRequests = DISABLE;
+  //hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -473,7 +493,8 @@ static void MX_ADC2_Init(void)
   hadc2.Init.DiscontinuousConvMode = DISABLE;
   hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc2.Init.DMAContinuousRequests = DISABLE;
+  //hadc2.Init.DMAContinuousRequests = DISABLE;
+  hadc2.Init.DMAContinuousRequests = ENABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc2.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
@@ -878,19 +899,19 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef * hspi)
 {
-  if(TransmissionFlagsSPI.empty()) return;
+  if(FlagSwitchersSPI.empty()) return;
 
-  *TransmissionFlagsSPI[hspi->Instance] = true;
+  *FlagSwitchersSPI[hspi->Instance] = true;
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
-   *SignalReadStates[hadc->Instance] = DeviceSignalInput<1>::StateSwitcher::SignalFillEnd;
+   *StateSwitchersADC[hadc->Instance] = DeviceTypeADC<1>::StateSwitcher::SignalFillEnd;
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
-   *SignalReadStates[hadc->Instance] = DeviceSignalInput<1>::StateSwitcher::SignalFillTop;
+   *StateSwitchersADC[hadc->Instance] = DeviceTypeADC<1>::StateSwitcher::SignalFillTop;
 }
 
 /* USER CODE END 4 */
@@ -935,7 +956,7 @@ void DAC_SinusGenerateTest()
   uint16_t DAC_AMPLITUDE = 2000;
   float ValueCounter = 0;
   uint16_t PERIOD = 360/2;
-  std::pair<uint16_t,uint16_t> DACControlSignal;
+  std::pair<uint16_t,uint16_t> DeviceDACSignal;
   uint8_t DelayTime = 1;
   //====================================
 
@@ -944,15 +965,15 @@ void DAC_SinusGenerateTest()
     ValueCounter++; if(ValueCounter == PERIOD) ValueCounter = 0;
     DAC_VALUE = DAC_AMPLITUDE + DAC_AMPLITUDE*std::sin(ValueCounter*2*M_PI/PERIOD);
 
-                    DACControlSignal.first = DAC_VALUE;
-                    DACControlSignal.second = DAC_VALUE/2;
+                    DeviceDACSignal.first = DAC_VALUE;
+                    DeviceDACSignal.second = DAC_VALUE/2;
 
-          //ExternalDACControl.SetValue(DACControlSignal);
-          //InternalDACControl.SetCoord(DACControlSignal); osDelay(DelayTime);
-          //InternalDACControlChannel1.SetValue(DACControlSignal.first); 
-          //InternalDACControlChannel2.SetValue(DACControlSignal.second);
-           DACControlSignal.first | InternalDACControlChannel1;
-          DACControlSignal.second | InternalDACControlChannel2;
+          //DeviceDACExternal.SetValue(DeviceDACSignal);
+          //DeviceDACInternal.SetCoord(DeviceDACSignal); osDelay(DelayTime);
+          //DeviceDACInternalChannel1.SetValue(DeviceDACSignal.first); 
+          //DeviceDACInternalChannel2.SetValue(DeviceDACSignal.second);
+           DeviceDACSignal.first | DeviceDACInternalChannel1;
+          DeviceDACSignal.second | DeviceDACInternalChannel2;
 
             osDelay(DelayTime);
   }
@@ -962,49 +983,59 @@ void DAC_SinusGenerateTestStep(int& PhaseCounter, uint16_t& DAC_VALUE)
 {
   PhaseCounter++; if(PhaseCounter == 360) PhaseCounter = 0;
   DAC_VALUE = 1500 + 1500*std::sin(4*PhaseCounter*2*M_PI/360);
-  DAC_VALUE | InternalDACControlChannel1;
+  DAC_VALUE | DeviceDACInternalChannel1;
 }
 
-
-void InitMessageProcess(DispatcherType* Dispatcher)
+void InitMessageProcessing(DispatcherType* Dispatcher)
 {
-	            MessageAimingDual* MessageAiming   = nullptr;
-    std::pair<uint16_t,uint16_t> DACControlSignal{0,0};
-    Dispatcher->AppendCallback<MessageAimingDual> ( [MessageAiming, DACControlSignal](MessageType& Message) mutable
+       MessageAimingDual* MessageAiming   = nullptr;
+    MessagePositionState* MessagePosition = nullptr;
+
+    std::pair<uint16_t,uint16_t> ControlOutputSignal;
+
+    Dispatcher->AppendCallback<MessageAimingDual> ( [MessageAiming, ControlOutputSignal](MessageType& Message) mutable
     {
        MessageAiming = DispatcherType::ExtractData<MessageAimingDual>(&Message);
-       DACControlSignal.first  =  MessageAiming->Channel1.Position;
-       DACControlSignal.second = -MessageAiming->Channel2.Position;
+       ControlOutputSignal.first  =  MessageAiming->Channel1.Position;
+       ControlOutputSignal.second = -MessageAiming->Channel2.Position;
+       ControlOutputSignal | DeviceDACInternal;
+         
+      //  ControlOutputSignal.first  = DeviceADC1.GetValue();
+      //  ControlOutputSignal.second = DeviceADC2.GetValue();
 
-       DACControlSignal | InternalDACControl;
+      //                  ControlAiming.SetControlSignalInput(ControlOutputSignal);
+      // *MessageAiming | ControlAiming;
 
        //eprintf("[ GET AIMING MESSAGE %d %d] \r\n", (int)MessageAiming->Channel1.Position,
        //                                            (int)MessageAiming->Channel2.Position);
     });
 
+    Dispatcher->AppendCallback<MessagePositionState> ( [MessagePosition](MessageType& Message) mutable
+    {
+       
+       MessagePosition = DispatcherType::ExtractData<MessagePositionState>(&Message);
+
+       *MessagePosition | ModuleDelayMeasureConnection;
+    });
+
 
     Dispatcher->AppendCallback<MessageCalibration> ( [](MessageType& Message)
     {
-       auto MessageGetCalibration = DispatcherType::ExtractData<MessageCalibration>(&Message);
+       auto CommandCalibration = DispatcherType::ExtractData<MessageCalibration>(&Message);
 
-	     //osMessageQueuePut(QueueMessageCalibrationHandle, MessageGetCalibration, 0, 0);
-       //eprintf("[ GET CALIBRATION MESSAGE %x] \r\n", (int)MessageGetCalibration->Command);
-       if(MessageGetCalibration->Command == COMMAND_MEASURE_DELAY)
-       {
-        FLAG_DELAY_TEST = !FLAG_DELAY_TEST;
-        eprintf("MEASURE DELAY START TEST %d", FLAG_DELAY_TEST);
+       eprintf("[ GET CALIBRATION MESSAGE %x %x] \r\n", (int)CommandCalibration->NodeType, 
+                                                        (int)CommandCalibration->Command);
+
+       if(CommandCalibration->NodeType == MODULE_TYPE_DELAY_MEASURE)
+        *CommandCalibration | ModuleDelayMeasureConnection;
+
+       if(CommandCalibration->NodeType == MODULE_TYPE_RESPONCE_MEASURE)
+	     osMessageQueuePut(QueueMessageCalibrationHandle, CommandCalibration, 0, 0);
+
+       if(CommandCalibration->NodeType == MODULE_TYPE_RESPONCE_MEASURE  && FLAG_MEASURE_THREAD_SUSPEND) 
+       { 
+        osThreadResume(TaskMeasureHandle);  FLAG_MEASURE_THREAD_SUSPEND = false; eprintf("MEASURE TASK RESUM \r\n");
        }
-
-       if(MessageGetCalibration->Command == COMMAND_RESPONSE)
-       {
-        MessageGetCalibration->Position | InternalDACControlChannel2;
-       }
-
-       //if(FLAG_MEASURE_THREAD_SUSPEND) 
-       //{ 
-       // eprintf("MEASURE TASK RESUM \r\n");
-       // osThreadResume(TaskMeasureHandle);  FLAG_MEASURE_THREAD_SUSPEND = false; 
-       //}
     });
 
     Dispatcher->AppendCallback<MessageCommand> ( [](MessageType& Message)
@@ -1042,9 +1073,6 @@ void RunTaskControl(void *argument)
   /* Infinite loop */
 
   eprintf("[START CONTROl TASK] \r\n"); osDelay(2);
-  //HAL_TIM_Base_Start_IT(&htim1);
-  //HAL_TIM_Base_Start_IT(&htim6);
-
   eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID1, TypeRegister<MessageAimingDual>::GetTypeSize()); osDelay(10);
   eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID2, TypeRegister<MessageCalibration>::GetTypeSize()); osDelay(10);
   eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID3, TypeRegister<MessageCommand>::GetTypeSize()); osDelay(10);
@@ -1052,38 +1080,31 @@ void RunTaskControl(void *argument)
   eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID5, TypeRegister<MessageMeasure1>::GetTypeSize()); osDelay(10);
   eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID6, TypeRegister<MessageCheckConnection>::GetTypeSize()); osDelay(10);
 
-         MessagePositionState DevicePosition;
+  //HAL_TIM_Base_Start_IT(&htim1);
+  //HAL_TIM_Base_Start_IT(&htim6);
+  //===============================================================
+       MessagePositionState DevicePosition;
   MessageInternalMonitoring MessageMonitoring;
 
-                            ConnectionControl.Init();
-             DispatcherType Dispatcher; InitMessageProcess(&Dispatcher);
-  //DAC_SinusGenerateTest();
-  int PhaseCounter = 0;
-  uint16_t DacValue = 0;
+  DispatcherType Dispatcher; InitMessageProcessing(&Dispatcher);
+            ConnectionRemote.InitModule();
+  //===============================================================
   MessageGeneric<MessagePositionState, HEADER_TYPE> MessagePosition;
-  //FLAG_DELAY_TEST = true;
 
   while(true)
   {
-	  ConnectionControl.PerformTransmission();
-	 *ConnectionControl.RingBufferMessages | Dispatcher;
+	  ConnectionRemote.GetIncommingMessages();
+	 *ConnectionRemote.RingBufferMessages | Dispatcher;
+    ConnectionRemote.SendPendingMessage(); 
 
-   if(FLAG_DELAY_TEST)
-   {
-   DAC_SinusGenerateTestStep(PhaseCounter, DacValue);
-   MessagePosition.DATA.Position1 = DacValue;
-   ConnectionControl.sendCommand((uint8_t*)&MessagePosition, sizeof(MessageGeneric<MessagePositionState, HEADER_TYPE>));
-   }
-
-   osDelay(1);
-	 //MessageMonitoring.Param1 = AimingControlCommand.Channel1.Position;
-	 //osMessageQueuePut(QueueMonitoringHandle, &MessageMonitoring, 0, 0);
-
-   //if(osMessageQueueGetCount(QueueMessagePositionStateHandle) == 0 ) continue;
-   //         osMessageQueueGet(QueueMessagePositionStateHandle,&DevicePosition,0,0);
-   //                               ConnectionControl.sendMessage(DevicePosition);
+    //ModuleDelayMeasureConnection.MeasureClosedLoopDelay();
+    //ModuleDelayMeasureControlLoop.MeasureClosedLoopDelay();
+    osDelay(1);
   }
 
+  //DAC_SinusGenerateTest();
+	//MessageMonitoring.Param1 = AimingControlCommand.Channel1.Position;
+	//osMessageQueuePut(QueueMonitoringHandle, &MessageMonitoring, 0, 0);
   /* USER CODE END RunTaskControl */
 }
 
@@ -1097,19 +1118,10 @@ void RunTaskControl(void *argument)
 void RunTaskMeasure(void *argument)
 {
   /* USER CODE BEGIN RunTaskMeasure */
-  eprintf("[RUN TASK MEASURE]");
+  osDelay(20);
+  eprintf("[RUN TASK MEASURE] \r\n");
 
-  //DeviceCalibrationClass<DeviceSignalInput<1>, ExternalDACType, InternalDACType>
-  //                                             ModuleCalibration{ &DeviceSignal1, 
-  //                                              &ExternalDACControl.Channel1,
-  //                                              &InternalDACControlChanne1
-  //                                            };
-
-  DeviceCalibrationClass<DeviceSignalInput<1>, InternalDACType, InternalDACType>
-                                               ModuleCalibration{ &DeviceSignal1, 
-                                                &InternalDACControlChannel1,
-                                                &InternalDACControlChannel2
-                                              };
+  ModuleResponceMeasure.InitModule();
 
   MessageCalibration CommandCalibration;
 
@@ -1119,10 +1131,10 @@ void RunTaskMeasure(void *argument)
       if(osMessageQueueGetCount(QueueMessageCalibrationHandle) != 0)
       {
 	     osMessageQueueGet(QueueMessageCalibrationHandle, &CommandCalibration, 0, 0);
-	     CommandCalibration >> ModuleCalibration;
+	     CommandCalibration >> ModuleResponceMeasure;
       }
 
-      if(ModuleCalibration.STATE_IDLE) 
+      if(ModuleResponceMeasure.STATE_IDLE) 
       {
        eprintf("MEASURE TASK SUSPEND \r\n");
        FLAG_MEASURE_THREAD_SUSPEND = true;

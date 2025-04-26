@@ -9,6 +9,7 @@
 #include "DeviceSignalInterfaces.h"
 #include <arm_math.h>
 #include "PassSignalInterface.h"
+#include <array>
 class SystemScaleSettings
 {
   public:
@@ -18,198 +19,122 @@ class SystemScaleSettings
   constexpr static float StepPeriod  = 1.0/10000; // 100 MKS CONTROL STEP
 };
 
-template<int N_CHANNEL>
-class AimingFixedStepClass : public PassValueClass<float>
+                              enum ExtrapolationTypes {LINEAR_EXTRAPOLATION = 0, DINAMIC_EXTRAPOLATION};
+template<typename V,int N_CHANNEL, ExtrapolationTypes Type> 
+                              class ModuleTypeExtrapolation;
+      template<int N_CHANNEL> class ModuleTypePIDControl; 
+   template<typename DEV_OUT> class ModuleTypeAimingControl;
+
+//=================================================================
+//uint16_t StepFreq = SystemScaleSettings::InputSignalPeriod/SystemScaleSettings::StepPeriod;
+//eprintf("[ AIMING FIXED STEP ] FREQ: %d", StepFreq);
+
+template<typename V,int N_CHANNEL, ExtrapolationTypes Type = LINEAR_EXTRAPOLATION>
+class ModuleTypeExtrapolation : public PassValueClass<V>
 {
   public:
-  AimingFixedStepClass() 
-  { 
-   //eprintf("[ AIMING FIXED STEP ] FREQ: %d", StepFreq);
-  } 
-  uint16_t StepFreq = SystemScaleSettings::InputSignalPeriod/SystemScaleSettings::StepPeriod;
+  ModuleTypeExtrapolation() { };
 
-  float InputValue;
-  float ValueVelocity = 0;
-  float ValueAcceleration = 0;
-  float OutputValue = 0;
-  float NextOutputValue = 0;
+  V InputValue;
+  V OutputValue = 0;
 
-  void SetValue(const float& NewInputValue)
+  size_t avarage_size = 8;
+  std::array<V,8> InputValueSample = {0};  
+  std::array<V,8>::iterator CurrentInputSample = InputValueSample.begin();
+  std::array<V,8>::iterator CurrentRemoveSample = InputValueSample.begin()+1;
+  float IncrementValueAvarage = 0;
+
+  void SetValue(const V& NewInputValue)
   {
-    ValueAcceleration = (NewInputValue - InputValue)/StepFreq - ValueVelocity;
-        ValueVelocity = (NewInputValue - InputValue)/StepFreq;
+    InputValue = NewInputValue;
+                              *CurrentInputSample = (NewInputValue - InputValue)/avarage_size;
+    IncrementValueAvarage += (*CurrentInputSample - *CurrentRemoveSample);
+                                                    *CurrentRemoveSample = *CurrentInputSample;
 
-                          InputValue = NewInputValue;
-        NextOutputValue = InputValue;
+      CurrentInputSample++; if(CurrentInputSample  == InputValueSample.end()) CurrentInputSample  = InputValueSample.begin();
+     CurrentRemoveSample++; if(CurrentRemoveSample == InputValueSample.end()) CurrentRemoveSample = InputValueSample.begin();
+
   }
    
-  const float& GetValue()
+  const V& GetValue()
   {
-	       OutputValue = NextOutputValue; NextOutputValue += ValueVelocity;
+	         OutputValue += IncrementValueAvarage;
     return OutputValue;
   }
 };
 
-template<>
-class AimingFixedStepClass<2> : public PassCoordClass<float>
+template<typename V>
+class ModuleTypeExtrapolation<V,2,LINEAR_EXTRAPOLATION> : public PassCoordClass<V>
 {
   public:
-  AimingFixedStepClass() 
+  ModuleTypeExtrapolation() 
   { 
   } 
-  std::pair<float,float> OutputSignal;
-  std::pair<float,float> InputSignal;
-  AimingFixedStepClass<1> AimingChannel1;
-  AimingFixedStepClass<1> AimingChannel2;
+  std::pair<V,V> OutputSignal;
+  std::pair<V,V> InputSignal;
+  ModuleTypeExtrapolation<V,1,LINEAR_EXTRAPOLATION> AimingChannel1;
+  ModuleTypeExtrapolation<V,1,LINEAR_EXTRAPOLATION> AimingChannel2;
 
-  void SetCoord(const std::pair<float,float>& NewInput)
+  void SetCoord(const std::pair<V,V>& NewInput)
   {
     InputSignal = NewInput;
     InputSignal.first  | AimingChannel1;
     InputSignal.second | AimingChannel2;
   }
    
-  const std::pair<float,float>& GetCoord()
+  const std::pair<V,V>& GetCoord()
   {
     AimingChannel1 | OutputSignal.first;
     AimingChannel2 | OutputSignal.second;
     return OutputSignal;
   }
 };
+//=====================================================================================
 
-
-
-template<uint8_t N_CHANNEL = 1>
-class AimingPIDClass : public PassValueClass<float>
+template<typename V,int N_CHANNEL>
+class ModuleTypeExtrapolation<V,N_CHANNEL,DINAMIC_EXTRAPOLATION> : public PassValueClass<V>
 {
   public:
-  AimingPIDClass() { SetPIDParam(1,0.0,0.0);     }
-  arm_pid_instance_f32 PIDParam;
-  uint8_t ChannelCount = N_CHANNEL;
+  ModuleTypeExtrapolation() { }
 
-  float InputSignal   = 0.0;
-  float OutputSignal  = 0.0;
-
-  void SetPIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; arm_pid_init_f32(&PIDParam, 1); }
-  void ChangePIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; arm_pid_init_f32(&PIDParam, 0); }
-
-    void SetValue(const float& Value) {InputSignal = Value; OutputSignal = arm_pid_f32(&PIDParam,InputSignal); }
-  const float& GetValue() { return OutputSignal;};
-
-};
-
-template<>
-class AimingPIDClass<2> : public PassCoordClass<float>
-{
-  public:
-  AimingPIDClass() { SetPIDParam(1,0.0002,0.0001);     }
-  arm_pid_instance_f32 PIDParam;
-  uint8_t ChannelCount = 2;
-
-  std::pair<float,float> InputSignal  = std::pair<float,float>(0,0);
-  std::pair<float,float> OutputSignal = std::pair<float,float>(0,0);
-
-  void SetPIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; arm_pid_init_f32(&PIDParam, 1); }
-  void ChangePIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; arm_pid_init_f32(&PIDParam, 0); }
-
-    void SetCoord(const std::pair<float,float>& Coord) 
-    {
-      InputSignal = Coord; OutputSignal.first = arm_pid_f32(&PIDParam,InputSignal.first); 
-                           OutputSignal.second = arm_pid_f32(&PIDParam,InputSignal.second);
-    }
-  const std::pair<float,float>& GetCoord() { return OutputSignal;};
-};
-//================================================================================
-
-enum class AimingType { DIRECT = 0, PID_VELOCITY = 1};
-
-template<typename V, AimingType Type = AimingType::DIRECT, int N_CHANNEL = 1>
-class AimingDinamicClass : public PassValueClass<V>
-{
-  public:
-  AimingDinamicClass() 
-  {
-    //if(Type == AimingType::DIRECT) eprintf("[ AIMING DINAMIC ] TYPE: %s", "PROLONG DIRECT");
-    //if(Type == AimingType::PID_VELOCITY) eprintf("[ AIMING DINAMIC ] TYPE: %s", "LOOP PID VELOCITY");
-  }
-
-  float PixToDAC        = SystemScaleSettings::ConvertPix_DAC;
+  //float PixToDAC        = SystemScaleSettings::ConvertPix_DAC;
   //float SecToTickPeriod = SystemScaleSettings::ConvertSecs_TimerTick;
   //float StepPeriod   = SystemScaleSettings::StepPeriod;
-  float SecToTickPeriod = 1.0/65.0;
+  //float SecToTickPeriod = 1.0/65.0;
   float StepPeriod   = 10.0/1000000;
-
   V     OutputValue = 0;
-  V NextOutputValue = 0;
 
   MessageAiming AimState; //AIM STATE IN DAC VALUES, AND TIMER PERIOD TICK SCALE
 
-  void SetValue(const V& Value) { AimState.Position = Value; NextOutputValue = AimState.Position; }
+  void SetValue(const V& Value) { OutputValue = Value;}
   const V& GetValue() 
   { 
-                      OutputValue = NextOutputValue;
-
-                                    //AimState.Velocity += AimState.Acceleration*StepPeriod;
-    NextOutputValue = OutputValue + AimState.Velocity*StepPeriod;
-
-               return OutputValue;
+           OutputValue += AimState.Velocity*StepPeriod;
+    return OutputValue;
   }
 
-  void SetState(const MessageAiming& NewState) { AimState.Position = NewState.Position;
-                                                  AimState.Velocity = NewState.Velocity;
-                                                  AimState.Acceleration = NewState.Acceleration;
-                                                  NextOutputValue = AimState.Position;} // POS IN DAC
-  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
+  void SetState(const MessageAiming& NewState) { AimState = NewState; } 
+  friend ModuleTypeExtrapolation& operator|(MessageAiming& State , ModuleTypeExtrapolation& Receiver) { Receiver.SetState(State);  return Receiver;}
 
 };
 
-
+//=================================================================
 template<typename V>
-class AimingDinamicClass<V,AimingType::PID_VELOCITY> : public PassValueClass<V>
+class ModuleTypeExtrapolation<V,2, DINAMIC_EXTRAPOLATION> : public PassCoordClass<V>
 {
   public:
-  AimingDinamicClass() { }
+  ModuleTypeExtrapolation() { }
 
-  float PixToDAC        = SystemScaleSettings::ConvertPix_DAC;
-  float SecToTickPeriod = SystemScaleSettings::ConvertSecs_TimerTick;
-  float StepPeriod   = SystemScaleSettings::StepPeriod; 
-  float StepFreq = SystemScaleSettings::InputSignalPeriod/SystemScaleSettings::StepPeriod;
+  ModuleTypeExtrapolation<V,1, DINAMIC_EXTRAPOLATION> AimingModule1;
+  ModuleTypeExtrapolation<V,1, DINAMIC_EXTRAPOLATION> AimingModule2;
 
-  V OutputVelocity = 0;
-  V OutputValue = 0; //OUTPUT POS IN DAC
-  
-  MessageAiming AimState;
-  AimingPIDClass<1> PID;
-
-  void SetValue(const V& Value) { AimState.Position = Value - 200;   //INPUT SIGNAL IN PIX
-                                  //AimState.Position | PID | OutputVelocity; // Velocity PIX/SECS
-															OutputVelocity /= StepFreq;
-															OutputVelocity *= 50;
-                                                             } // Velocity PIX/TICKS
-
-  const V& GetValue() { OutputValue += OutputVelocity*StepPeriod; return OutputValue; }
-
-  void SetState(const MessageAiming& NewState) { AimState = NewState; SetValue(AimState.Position);}
-  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver) { Receiver.SetState(State);  return Receiver;}
-
-
-};
-
-template<typename V, AimingType Type> //TWO CHANNEL CONTAINER FOR ONE CHANNEL AIMING CLASS
-class AimingDinamicClass<V,Type,2> : public PassCoordClass<V>
-{
-  public:
-  AimingDinamicClass() { Modules[0] = &AimingModule1;  Modules[1] = &AimingModule2;}
-
-  AimingDinamicClass<V,Type,1> AimingModule1;
-  AimingDinamicClass<V,Type,1> AimingModule2;
-
-  void SetState(const MessageAiming& NewState) { Modules[CurrentChannel]->SetState(NewState);
-                                                          CurrentChannel++; 
-                                   if(CurrentChannel > 1) CurrentChannel = 0;
+  void SetState(const MessageAimingDual& NewState) 
+  { 
+    AimingModule1->SetState(NewState);
+    AimingModule2->SetState(NewState);
   };
-  //friend AimingDinamicClass<V,Type,2>& operator|(MessageAiming& State , AimingDinamicClass<V,Type,2>& Receiver) { Receiver.SetState(State);  return Receiver;}
-  friend AimingDinamicClass& operator|(MessageAiming& State , AimingDinamicClass& Receiver)
+  //friend ModuleTypeExtrapolation<V,Type,2>& operator|(MessageAiming& State , ModuleTypeExtrapolation<V,Type,2>& Receiver) { Receiver.SetState(State);  return Receiver;}
+  friend ModuleTypeExtrapolation& operator|(MessageAimingDual& State , ModuleTypeExtrapolation& Receiver)
   { Receiver.SetState(State);  return Receiver;}
 
 
@@ -224,11 +149,104 @@ class AimingDinamicClass<V,Type,2> : public PassCoordClass<V>
   }
 
   std::pair<V,V> AimCoord;
-
-
-  AimingDinamicClass<V,Type>* Modules[2];
-
-  uint8_t CurrentChannel = 0;
 };
+//=================================================================
+
+template<int N_CHANNEL = 1>
+class ModuleTypePIDControl : public PassValueClass<float>
+{
+  public:
+  ModuleTypePIDControl() { SetPIDParam(1,0.0,0.0);     }
+  arm_pid_instance_f32 PIDParam;
+  uint8_t ChannelCount = N_CHANNEL;
+
+  float InputSignal   = 0.0;
+  float OutputSignal  = 0.0;
+
+  void SetPIDParam   (float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; 
+                                                                   arm_pid_init_f32(&PIDParam, 1); }
+
+  void ChangePIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; 
+                                                                   arm_pid_init_f32(&PIDParam, 0); }
+
+    void SetValue(const float& Value) {InputSignal = Value; OutputSignal = arm_pid_f32(&PIDParam,InputSignal); }
+  const float& GetValue() { return OutputSignal;};
+
+};
+
+template<>
+class ModuleTypePIDControl<2> : public PassCoordClass<float>
+{
+  public:
+  ModuleTypePIDControl() { SetPIDParam(1,0.0002,0.0001);     }
+  arm_pid_instance_f32 PIDParam;
+  uint8_t ChannelCount = 2;
+
+  std::pair<float,float> InputSignal  = std::pair<float,float>(0,0);
+  std::pair<float,float> OutputSignal = std::pair<float,float>(0,0);
+
+     void SetPIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; 
+                                                                   arm_pid_init_f32(&PIDParam, 1); }
+
+  void ChangePIDParam(float K, float I, float D) { PIDParam.Kp = K; PIDParam.Ki = I; PIDParam.Kd = D; 
+                                                                   arm_pid_init_f32(&PIDParam, 0); }
+
+    void SetCoord(const std::pair<float,float>& Coord) 
+    {
+      InputSignal = Coord; OutputSignal.first = arm_pid_f32(&PIDParam,InputSignal.first); 
+                           OutputSignal.second = arm_pid_f32(&PIDParam,InputSignal.second);
+    }
+  const std::pair<float,float>& GetCoord() { return OutputSignal;};
+};
+//================================================================================
+
+template<typename DEV_OUT> class ModuleTypeAimingControl
+{
+  public:
+  DEV_OUT* DeviceControl = nullptr;
+  void LinkToDevice(DEV_OUT* Device) { DeviceControl = Device;};
+  MessageAimingDual AimingState;
+
+  std::pair<float,float>  InputErrorSignal{0,0};
+  std::pair<float,float>  InputControlSignal{0,0};
+  std::pair<uint16_t,uint16_t> ControlSignal{0,0};
+
+           ModuleTypePIDControl<2> ModulePID;
+  ModuleTypeExtrapolation<float,2, LINEAR_EXTRAPOLATION> ModuleExtrapolation;
+
+  void SetInput(MessageAimingDual& MessageAiming)
+  {
+    AimingState = MessageAiming;
+    InputErrorSignal.first = AimingState.Channel1.Position;
+    InputErrorSignal.second = AimingState.Channel2.Position;
+    GenerateOutput();
+  }
+
+  void SetInput(std::pair<float,float> Input)
+  {
+    InputErrorSignal = Input;
+    GenerateOutput();
+  }; 
+
+  void SetControlSignalInput(std::pair<float,float> Input) 
+  {
+    InputControlSignal = Input; 
+  };
+
+  void GenerateOutput() 
+  {
+    ControlSignal.first   = InputErrorSignal.first;
+    ControlSignal.second  = InputErrorSignal.second;
+    ControlSignal | *DeviceControl;
+  }
+
+  friend void operator|(MessageAimingDual& MessageAiming, ModuleTypeAimingControl AimingNode)
+  {
+    AimingNode.SetInput(MessageAiming);
+  }
+
+};
+
+
 
 #endif //GENERIC_AIMING_CONTROL_H

@@ -7,14 +7,13 @@
 extern osMessageQueueId_t QueueAimingControlHandle;
 extern osMessageQueueId_t QueueAimingProcessingHandle;
 
-
 uint8_t TEST_MESSAGE[30];
 
-UDPConnectionInterface::UDPConnectionInterface()
+DeviceTypeConnectionUDP::DeviceTypeConnectionUDP()
 {
 }
 
-void UDPConnectionInterface::Init()
+void DeviceTypeConnectionUDP::InitModule()
 {
 	InputBuffer = new uint8_t[InputBufferSize];
 
@@ -26,23 +25,22 @@ void UDPConnectionInterface::Init()
 
 	eprintf("[ IP_REMOTE:  %d.%d.%d.%d] \r\n", IPRemote[0], IPRemote[1], IPRemote[2], IPRemote[3]);
 	eprintf("[ PORT LOCAL: %d REMOTE: %d] \r\n", PortLocal, PortRemote);
-	eprintf("[ BASE_SIZE:  %d] \r\n", BaseSize);
 }
 
-void UDPConnectionInterface::SendTestMessage()
+void DeviceTypeConnectionUDP::sendTestMessage()
 {
     sprintf((char*)TEST_MESSAGE,"HELLO FROM STM32\r\n");
     sendData(TEST_MESSAGE,strlen((char*)TEST_MESSAGE));
     eprintf("[ SEND TEST MESSAGE %d] \r\n", strlen((char*)TEST_MESSAGE));
 }
 
-UDPConnectionInterface::~UDPConnectionInterface()
+DeviceTypeConnectionUDP::~DeviceTypeConnectionUDP()
 {
 	delete EthernetInterface;
 	delete InputBuffer;
 }
 
-void CheckConnectionProcess(int BYTES_RECEIVED, uint8_t* InputBuffer)
+void MessageBytesPrint(int BYTES_RECEIVED, uint8_t* InputBuffer)
 {
 	eprintf("BYTES RECEIVED: %d \r\n", BYTES_RECEIVED);
 	eprintf("BYTES: %x %x %x %x %x %x %x %x %x %x %x %x %x %x \r\n", InputBuffer[0], 
@@ -63,34 +61,36 @@ void CheckConnectionProcess(int BYTES_RECEIVED, uint8_t* InputBuffer)
 													osDelay(100);
 }
 
-void UDPConnectionInterface::PerformTransmission()
+void DeviceTypeConnectionUDP::GetIncommingMessages()
 {
 	BYTES_RECEIVED = 0;
     BYTES_AVAILABLE = getSn_RX_RSR(0); 
-	if(BYTES_AVAILABLE < TypeRegister<>::GetMinTypeSize() + sizeof(MESSAGE_HEADER_GENERIC)) return;;
+	if(BYTES_AVAILABLE < TypeRegister<>::GetMinTypeSize() + sizeof(MESSAGE_HEADER_GENERIC)) return;
 
 	BYTES_RECEIVED = recvfrom( NumberSocket, InputBuffer,BYTES_AVAILABLE, IPRemote, &PortLocal);
 	RingBufferMessages->AppendData(InputBuffer,BYTES_RECEIVED); BYTES_RECEIVED = 0;
 
-	//CheckConnectionProcess(BYTES_AVAILABLE, InputBuffer);
+	//MessageBytesPrint(BYTES_AVAILABLE, InputBuffer);
 }
 
-void UDPConnectionInterface::sendData(uint8_t* Data, uint16_t DataSize)
+void DeviceTypeConnectionUDP::sendData(uint8_t* Data, uint16_t DataSize)
 {
-	 //eprintf("SEND DATA TO: %d:%d:%d:%d %d SIZE: %d \r\n", IPRemote[0],IPRemote[1], IPRemote[2], IPRemote[3], PortRemote,DataSize);
-
 	 ResultTransmission = sendDataChunked(Data, DataSize);
-
-  if(ResultTransmission != 0) eprintf("ERROR SENDING UDP MESSAGE \r\n");
 }
 
-void UDPConnectionInterface::sendMessage(MessagePositionState& Message)
+void DeviceTypeConnectionUDP::sendMessage(MessagePositionState& Message)
 {
                          MessagePosition.DATA = Message;
-	sendData((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
+	  sendData((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
 }
 
-uint8_t UDPConnectionInterface::sendDataChunked(uint8_t* Data, uint16_t DataSize)
+void DeviceTypeConnectionUDP::PutMessageToSend(MessagePositionState& Message)
+{
+                         MessagePosition.DATA = Message;
+	  PutMessageToSend((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
+}
+
+uint8_t DeviceTypeConnectionUDP::sendDataChunked(uint8_t* Data, uint16_t DataSize)
 {
 	while(DataSize >= 300)
 	{
@@ -107,7 +107,7 @@ uint8_t UDPConnectionInterface::sendDataChunked(uint8_t* Data, uint16_t DataSize
 
 }
 
-void UDPConnectionInterface::sendCommand(uint8_t* Command, uint16_t DataSize)
+void DeviceTypeConnectionUDP::sendCommand(uint8_t* Command, uint16_t DataSize)
 {
 	sendto(NumberSocket,Command, DataSize, IPRemote, PortRemote); 
 }
