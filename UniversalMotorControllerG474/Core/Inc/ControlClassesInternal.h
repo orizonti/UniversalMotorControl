@@ -24,6 +24,81 @@ extern DeviceTypeConnectionUDP ConnectionRemote;
 extern osMessageQueueId_t QueueMessagePositionStateHandle;
 
 
+template<typename DEV_IN, typename DEV_OUT>
+class DeviceTypeScanator
+{
+  public:
+  //using SignalType = decltype(DEV_OUT::OutputSignal);
+  using MessageStateType = MessageState1;
+
+  #define DEVICE_TYPE_SCANATOR      0xD0
+  #define COMMAND_MONITORING_TOGGLE 0xD1
+
+  public:
+  static DEV_OUT* DeviceControl;
+  static DEV_IN*  DeviceInput1;
+  static DEV_IN*  DeviceInput2;
+
+  bool STATE_IDLE = true;
+  bool STATE_MONITORING = false;
+
+       std::pair<float, float>  InputSignal{0,0};
+  std::pair<uint16_t, uint16_t> OutputSignalMeasure{0,0};
+  std::pair<uint16_t, uint16_t> ControlSignal{0,0};
+
+  explicit DeviceTypeScanator(DEV_IN* DevInput1, DEV_IN* DevInput2, DEV_OUT* DevOut) 
+                            { 
+                              DeviceControl = DevOut;
+
+                              DeviceInput1 = DevInput1;
+                              DeviceInput2 = DevInput2;
+                            }
+
+  MessageStateType MessageState;
+
+  void SetInput(MessageAimingDual& AimingCommand) 
+  {
+      InputSignal.first  = AimingCommand.Channel1.Position;
+      InputSignal.second = AimingCommand.Channel1.Position;
+
+    GenerateOutput();
+     OutputSignalMeasure.first = DeviceInput1->GetValue();
+    OutputSignalMeasure.second = DeviceInput2->GetValue();
+
+    if(STATE_MONITORING) 
+    {
+    MessageState.Position1 = AimingCommand.Channel1.Position;
+    MessageState.Position2 = AimingCommand.Channel2.Position;
+     MessageState.Measure1 = OutputSignalMeasure.first;
+     MessageState.Measure2 = OutputSignalMeasure.second;
+    ConnectionRemote.PutMessageToSend(MessageState);
+    }
+  };
+  friend void operator|(MessageAimingDual& AimingCommand, DeviceTypeScanator& Device) { Device.SetInput(AimingCommand); }
+
+  void GenerateOutput() 
+  {
+    ControlSignal.second = InputSignal.first;
+    ControlSignal.first  = InputSignal.second;
+    ControlSignal | *DeviceControl;
+  }
+  //=================================================
+
+  friend void operator|(MessageCommand& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
+  void SetInput(MessageCommand& Message) 
+  { 
+    if(Message.Command == COMMAND_MONITORING_TOGGLE) STATE_MONITORING = !STATE_MONITORING; 
+           eprintf("[ SCANATOR SET MONITORING %d ] \r\n", STATE_MONITORING);
+  };
+
+  private:
+                                 ModuleTypePIDControl<2> ModulePID;
+  ModuleTypeExtrapolation<float,2, LINEAR_EXTRAPOLATION> ModuleExtrapolation;
+
+  PassCoordTransform<float,uint16_t,SystemScaleSettings::ConvertPix_DAC> PixToDAC;
+
+};
+
 //=========================================================================================
 #define COMMAND_IDLE                 0xC0
 #define MODULE_TYPE_RESPONCE_MEASURE 0xA0
@@ -100,11 +175,9 @@ class ModuleTypeResponceMeasure
   using SignalType = decltype(DEV_OUT::OutputSignal);
   using MessageMeasureType = MessageGeneric<MessageMeasure1,MESSAGE_HEADER_GENERIC>;
 
-  #define COMMAND_GET_POSITION   0xA1
-  #define COMMAND_GET_SERIES     0xA2
-  #define COMMAND_MEASURE_LINEAR 0xA3
-  #define COMMAND_MEASURE_STEP   0xA4
-  #define COMMAND_CONTINOUS      0xA5
+  #define COMMAND_GET_SERIES     0xA1
+  #define COMMAND_MEASURE_LINEAR 0xA2
+  #define COMMAND_MEASURE_STEP   0xA3
 
   public:
   explicit ModuleTypeResponceMeasure(DEV_IN* DeviceInput, DEV_OUT* DeviceOutput) 
@@ -116,7 +189,6 @@ class ModuleTypeResponceMeasure
   void InitModule() 
   { 
       eprintf("INIT TIMERS \r\n");
-      Timer.InitTimer(GetPosition); 
       TimerCalibration.InitTimer(MakeCalibrationStep); 
   }
   static DEV_OUT* DeviceControl;
@@ -130,8 +202,7 @@ class ModuleTypeResponceMeasure
     MessageMeasureType* MeasureStore;
   static MessagePositionState MessagePosition;
 
-         TimerSoft<1,ModuleTypeResponceMeasure> Timer;
-  static TimerSoft<2,ModuleTypeResponceMeasure> TimerCalibration;
+  static TimerSoft<1,ModuleTypeResponceMeasure> TimerCalibration;
 
   static SignalType MeasureSignal;
   static SignalType InputSignal;
@@ -142,7 +213,6 @@ class ModuleTypeResponceMeasure
   bool isIdleState() { return STATE_IDLE; };
   void SetStateIdle();
 
-
   void ProcessStepMeasure();
   void ProcessLinearCalibration();
   void ProcessContinousMeasure();
@@ -150,8 +220,6 @@ class ModuleTypeResponceMeasure
   void StartReadSeriesMeasure();
   void EndReadSeriesMeasure();
   void GetSeriesMeasure();
-
-  static void GetPosition(void* param) ;
 
   friend void operator>>(MessageCalibration& MessageCalibration, ModuleTypeResponceMeasure& CalibrationNode)
   {
@@ -161,6 +229,7 @@ class ModuleTypeResponceMeasure
 
   private:
   static void MakeCalibrationStep(void* param) ;
+         void MakeStartMarkOnMeasure();
 };
 
 
@@ -195,33 +264,42 @@ void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::ProcessContinousMeasure()
 {
   eprintf("[ CONTINOUS MEASURE ] \r\n");
   DeviceSignalInput->SetModeContinous(false);
-  Timer.start(5);
 }
+
 
 template<typename DEV_IN, typename DEV_OUT>
-void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::GetPosition(void* param) 
+void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::MakeStartMarkOnMeasure()
 {
-  MessagePosition.Measure1  = DeviceSignalInput->GetValue();
-  ConnectionRemote.PutMessageToSend(MessagePosition);
-}
+  uint16_t* DataStart = MeasureStore->DATA.DataVector; 
+  uint16_t*   DataEnd = MeasureStore->DATA.DataVector + MeasureStore->DATA.DataCapacity/2; 
+  uint16_t* MarkerPos; 
 
+            MarkerPos= std::find(DataStart, DataEnd, 0xF1F2);
+            *(MarkerPos-10) = 10000; 
+            *(MarkerPos-9 ) = 10000;
+}
 
 template<typename DEV_IN, typename DEV_OUT>
 void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::ProcessStepMeasure()
 {
   eprintf("======================================\r\n");
-  eprintf("[ START STEP MEASURE ] AMPL: %d STEP: %d \r\n",Settings.Amplitude, Settings.NumberSteps);
-  Timer.stop(); 
-  DeviceSignalInput->SetModeContinous(true); 
+  eprintf("[ START STEP MEASURE ] AMPL: %d STORE: %d \r\n",Settings.Amplitude, MeasureStore->DATA.DataCapacity);
+  DeviceSignalInput->SetModeContinous(true);
+  MeasureStore->DATA.Clear();
 
   OutputSignal = 2000;
-  StartReadSeriesMeasure(); osDelay(10);
-  OutputSignal | *DeviceControl; 
+  StartReadSeriesMeasure(); osDelay(10); MakeStartMarkOnMeasure(); 
+
+  OutputSignal | *DeviceControl;        
     EndReadSeriesMeasure(); 
 
   OutputSignal = 0; OutputSignal | *DeviceControl; 
+  DeviceSignalInput->SetModeReady();
   eprintf("======================================\r\n");
 }
+
+template<typename DEV_IN, typename DEV_OUT>
+void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::GetSeriesMeasure() { StartReadSeriesMeasure(); EndReadSeriesMeasure(); }
 
 template<typename DEV_IN, typename DEV_OUT>
 void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::StartReadSeriesMeasure() 
@@ -234,24 +312,19 @@ extern osThreadId_t TaskControlHandle;
 template<typename DEV_IN, typename DEV_OUT>
 void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::EndReadSeriesMeasure() 
 { 
-       osThreadSuspend(TaskControlHandle); osDelay(2);
+
   bool MeasureDone = DeviceSignalInput->WaitEndMeasure();
-   if( MeasureDone) ConnectionRemote.sendData((uint8_t*)MeasureStore, sizeof(MessageMeasureType));
-   if( MeasureDone) eprintf("[ STEP MEASURE DONE ] \r\n");
+   if( MeasureDone) ConnectionRemote.PutMessageToSend((uint8_t*)MeasureStore, sizeof(MessageMeasureType));
+   if( MeasureDone) eprintf("[ STEP MEASURE DONE SIZE %d] \r\n", sizeof(MessageMeasureType));
    if(!MeasureDone) eprintf("[ STEP MEASURE FAIL ] \r\n");
-        osThreadResume(TaskControlHandle); 
 
   SetStateIdle();
 }
 
 template<typename DEV_IN, typename DEV_OUT>
-void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::GetSeriesMeasure() { StartReadSeriesMeasure(); EndReadSeriesMeasure(); }
-
-template<typename DEV_IN, typename DEV_OUT>
 void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::SetStateIdle() 
 { 
-  DeviceSignalInput->SetModeReady(); STATE_IDLE = true; 
-  Timer.stop(); 
+  STATE_IDLE = true; 
   eprintf("[CALIBRATION IDLE REGIM] \r\n"); 
 };
 
@@ -260,11 +333,9 @@ void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::PerformCommand(MessageCalibratio
 {
       STATE_IDLE = false;
       Settings = MessageCalibration; 
-  if(Settings.Command == COMMAND_GET_POSITION)   { GetPosition(&Settings.Channel); return; };
   if(Settings.Command == COMMAND_GET_SERIES)     { GetSeriesMeasure();             return; };
   if(Settings.Command == COMMAND_MEASURE_LINEAR) { ProcessLinearCalibration();     return; };
   if(Settings.Command == COMMAND_MEASURE_STEP)   { ProcessStepMeasure();           return; };
-  if(Settings.Command == COMMAND_CONTINOUS)      { ProcessContinousMeasure();      return; };
   if(Settings.Command == COMMAND_IDLE)           { SetStateIdle();                 return; };
       STATE_IDLE = true;
 }
@@ -306,7 +377,7 @@ template<typename DEV_IN, typename DEV_OUT>
 ModuleTypeResponceMeasure<DEV_IN, DEV_OUT>::SignalType ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::InputSignal{0};
 
 template<typename DEV_IN, typename DEV_OUT> 
-TimerSoft<2,ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>> ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::TimerCalibration;
+TimerSoft<1,ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>> ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::TimerCalibration;
 
 //====================================================================================
 template<typename DEV_OUT1, typename DEV_OUT2, typename DEV_OUT3> 
@@ -327,5 +398,10 @@ template<typename DEV_OUT1, typename DEV_OUT2, typename DEV_OUT3>
        
 template<typename DEV_OUT1, typename DEV_OUT2, typename DEV_OUT3> 
 MessagePositionState ModuleTypeDelayMeasure<DEV_OUT1,DEV_OUT2,DEV_OUT3>::MessagePosition;
+
+//====================================================================================
+template<typename DEV_IN, typename DEV_OUT> DEV_OUT* DeviceTypeScanator<DEV_IN,DEV_OUT>::DeviceControl = nullptr;
+template<typename DEV_IN, typename DEV_OUT> DEV_IN*  DeviceTypeScanator<DEV_IN,DEV_OUT>::DeviceInput1  = nullptr;
+template<typename DEV_IN, typename DEV_OUT> DEV_IN*  DeviceTypeScanator<DEV_IN,DEV_OUT>::DeviceInput2  = nullptr;
 
 #endif //GENERIC_INTERNAL_CONTROL_H

@@ -200,53 +200,6 @@ class ModuleTypePIDControl<2> : public PassCoordClass<float>
 };
 //================================================================================
 
-template<typename DEV_OUT> class ModuleTypeAimingControl
-{
-  public:
-  DEV_OUT* DeviceControl = nullptr;
-  void LinkToDevice(DEV_OUT* Device) { DeviceControl = Device;};
-  MessageAimingDual AimingState;
-
-  std::pair<float,float>  InputErrorSignal{0,0};
-  std::pair<float,float>  InputControlSignal{0,0};
-  std::pair<uint16_t,uint16_t> ControlSignal{0,0};
-
-           ModuleTypePIDControl<2> ModulePID;
-  ModuleTypeExtrapolation<float,2, LINEAR_EXTRAPOLATION> ModuleExtrapolation;
-
-  void SetInput(MessageAimingDual& MessageAiming)
-  {
-    AimingState = MessageAiming;
-    InputErrorSignal.first = AimingState.Channel1.Position;
-    InputErrorSignal.second = AimingState.Channel2.Position;
-    GenerateOutput();
-  }
-
-  void SetInput(std::pair<float,float> Input)
-  {
-    InputErrorSignal = Input;
-    GenerateOutput();
-  }; 
-
-  void SetControlSignalInput(std::pair<float,float> Input) 
-  {
-    InputControlSignal = Input; 
-  };
-
-  void GenerateOutput() 
-  {
-    ControlSignal.first   = InputErrorSignal.first;
-    ControlSignal.second  = InputErrorSignal.second;
-    ControlSignal | *DeviceControl;
-  }
-
-  friend void operator|(MessageAimingDual& MessageAiming, ModuleTypeAimingControl AimingNode)
-  {
-    AimingNode.SetInput(MessageAiming);
-  }
-
-};
-
 
 
 #endif //GENERIC_AIMING_CONTROL_H

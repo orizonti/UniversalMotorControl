@@ -13,15 +13,16 @@
 extern DAC_HandleTypeDef hdac1;
 extern SPI_HandleTypeDef hspi2;
 extern UART_HandleTypeDef huart3;
+
 #define DAC_INTERNAL 1
 #define DAC_SPI_8653 2
 #define DAC_SPI_8550 3
 
 template<typename DEV_T, typename V, int N_CHAN = 1, int TYPE = DAC_INTERNAL>
-class DeviceADCControl : public PassValueClass<V> {
+class DeviceDACControl : public PassValueClass<V> {
 
 public:
-    DeviceADCControl(DEV_T& DeviceControl){};
+    DeviceDACControl(DEV_T& DeviceControl){};
 	void SetValue(V Value) {};
 	void Init(){};
 private:
@@ -32,10 +33,10 @@ private:
 //DAC_INTERNAL
 
 template<typename V>
-class DeviceADCControl<DAC_HandleTypeDef,V,1, DAC_INTERNAL> : public PassValueClass<V> 
+class DeviceDACControl<DAC_HandleTypeDef,V,1, DAC_INTERNAL> : public PassValueClass<V> 
 {
 public:
-    DeviceADCControl(DAC_HandleTypeDef& DeviceControl, int ChannelNumber) {Device = &DeviceControl; Channel = ChannelNumber;};
+    DeviceDACControl(DAC_HandleTypeDef& DeviceControl, int ChannelNumber) {Device = &DeviceControl; Channel = ChannelNumber;};
 	void SetValue(const V& Value) { HAL_DAC_SetValue(Device,Channel,DAC_ALIGN_12B_R,Value);}
     const V& GetValue() { return OutputSignal;}
 	void Init() { HAL_DAC_Start(Device,Channel); };
@@ -47,10 +48,10 @@ private:
 
 
 template<typename V>
-class DeviceADCControl<DAC_HandleTypeDef,V,2, DAC_INTERNAL> : public PassCoordClass<V> 
+class DeviceDACControl<DAC_HandleTypeDef,V,2, DAC_INTERNAL> : public PassCoordClass<V> 
 {
 public:
-    DeviceADCControl(DAC_HandleTypeDef& DeviceControl) {Device = &DeviceControl;};
+    DeviceDACControl(DAC_HandleTypeDef& DeviceControl) {Device = &DeviceControl;};
 
 	void SetValue(const V& Output, uint8_t Channel) 
 	{
@@ -78,10 +79,10 @@ private:
 //===============================================================================================
 //DAC_8653
 template<typename V>
-class DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653> : public PassValueClass<V> 
+class DeviceDACControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653> : public PassValueClass<V> 
 {
 public:
-    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect, uint8_t NumberChannel = 1) 
+    DeviceDACControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect, uint8_t NumberChannel = 1) 
 	{
     Device = &DeviceControl;
 	CSPin = PinSelect;
@@ -120,18 +121,18 @@ private:
 };
 
 template<typename V>
-class DeviceADCControl<SPI_HandleTypeDef,V,2,DAC_SPI_8653> : public PassCoordClass<V> 
+class DeviceDACControl<SPI_HandleTypeDef,V,2,DAC_SPI_8653> : public PassCoordClass<V> 
 {
 public:
-    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect) : 
+    DeviceDACControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect) : 
     Channel1{DeviceControl,PinSelect,1},
     Channel2{DeviceControl,PinSelect,2}
 	{
 	};
 
-    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel1;
-    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel2;
-	void Init() { DeviceADCControl<SPI_HandleTypeDef,V,1>::Init(); };
+    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel1;
+    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653> Channel2;
+	void Init() { DeviceDACControl<SPI_HandleTypeDef,V,1>::Init(); };
 
 	void SetCoord(const std::pair<V,V>& Output) { Channel1.SetValue(Output.first); 
                                                   Channel2.SetValue(Output.second); }
@@ -142,7 +143,7 @@ public:
     std::pair<V,V> OutputSignal;
 };
 
-template<typename V> void DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653>::Init()
+template<typename V> void DeviceDACControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653>::Init()
 {
   if(FLAG_INIT_DONE) return;
   eprintf("[ EXTERNAL DAC INIT START ] \r\n");
@@ -184,11 +185,11 @@ template<typename V> void DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8653>:
   eprintf("[ EXTERNAL DAC INIT END ] \r\n");
 };
 
-template<typename V> SPI_HandleTypeDef*                DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::Device = 0;
-template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::CSPin;
-template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::FLAG_INIT_DONE = false;
-template<typename V> uint8_t DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransferBuffer[3];
-template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransmissionEndFlag;
+template<typename V> SPI_HandleTypeDef*                DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::Device = 0;
+template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::CSPin;
+template<typename V> bool    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::FLAG_INIT_DONE = false;
+template<typename V> uint8_t DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransferBuffer[3];
+template<typename V> bool    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653>::TransmissionEndFlag;
 
 //DAC_8653
 //===============================================================================================
@@ -196,10 +197,10 @@ template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8653
 //================================================================================
 //DAC_8550
 template<typename V>
-class DeviceADCControl<SPI_HandleTypeDef,V,1, DAC_SPI_8550> : public PassValueClass<V> 
+class DeviceDACControl<SPI_HandleTypeDef,V,1, DAC_SPI_8550> : public PassValueClass<V> 
 {
 public:
-    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect)
+    DeviceDACControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect)
 	{
     Device = &DeviceControl;
 	CSPin = PinSelect;
@@ -238,21 +239,22 @@ private:
 };
 
 template<typename V>
-class DeviceADCControl<SPI_HandleTypeDef,V,2, DAC_SPI_8550> : public PassCoordClass<V>
+class DeviceDACControl<SPI_HandleTypeDef,V,2, DAC_SPI_8550> : public PassCoordClass<V>
 {
 public:
-    DeviceADCControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect,
+    DeviceDACControl(SPI_HandleTypeDef& DeviceControl, std::pair<GPIO_TypeDef*,uint16_t> PinSelect,
     		            SPI_HandleTypeDef& DeviceControl2, std::pair<GPIO_TypeDef*,uint16_t> PinSelect2) :
     Channel1{DeviceControl,PinSelect},
     Channel2{DeviceControl2,PinSelect2}
 	{
 	};
 
-    DeviceADCControl<SPI_HandleTypeDef,V,1> Channel1;
-    DeviceADCControl<SPI_HandleTypeDef,V,1> Channel2;
+    DeviceDACControl<SPI_HandleTypeDef,V,1> Channel1;
+    DeviceDACControl<SPI_HandleTypeDef,V,1> Channel2;
 	void Init() { };
 
 	void SetCoord(const std::pair<V,V>& Output) { Channel1.SetValue(Output.first); Channel2.SetValue(Output.second); }
+	void SetValue(uint16_t Value) { Channel1.SetValue(Value); }
     const std::pair<V,V>& GetCoord() { return CurrentOutput;}; //ALWAYS NULL, IF NEEDED ADD WRITE LAST OUTPUT
 
     void RegisterFlag(std::map<SPI_TypeDef*,bool*>& FlagsRegister) { Channel1.RegisterFlag(FlagsRegister);
@@ -261,11 +263,11 @@ private:
     std::pair<V,V> CurrentOutput{0,0};
 };
 
-template<typename V> SPI_HandleTypeDef*                DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::Device = 0;
-template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::CSPin;
-template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::FLAG_INIT_DONE = false;
-template<typename V> uint8_t DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransferBuffer[3];
-template<typename V> bool    DeviceADCControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransmissionEndFlag;
+template<typename V> SPI_HandleTypeDef*                DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::Device = 0;
+template<typename V> std::pair<GPIO_TypeDef*,uint16_t> DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::CSPin;
+template<typename V> bool    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::FLAG_INIT_DONE = false;
+template<typename V> uint8_t DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransferBuffer[3];
+template<typename V> bool    DeviceDACControl<SPI_HandleTypeDef,V,1,DAC_SPI_8550>::TransmissionEndFlag;
 //DAC_8550_END
 //================================================================================
 
@@ -279,7 +281,7 @@ class DeviceTypeADC : public PassValueClass<uint16_t>
 public:
     enum Mode {ReadyMode = 0, ContinousMode, ActiveMode};
     enum StateSwitcher { SignalFillBottom = 0 , SignalFillTop, SignalFillEnd};
-    #define SIGNAL_STORE_SIZE 48
+    #define SIGNAL_STORE_SIZE 1000
 
     explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl, uint32_t Channel): 
     Device(DeviceControl), DeviceChannel(Channel) 
@@ -288,14 +290,14 @@ public:
     uint16_t OutputSignal = 0;
     uint16_t SignalRegister[SIGNAL_STORE_SIZE];
 
-    Mode Regim = ReadyMode; 
+    Mode Regim = ContinousMode; 
     StateSwitcher RegisterStateSwitcher = SignalFillBottom;
 
     void WriteSignal(uint16_t* Buffer, int Size);
     bool WaitEndMeasure() 
     { 
         bool Result = false;
-        uint16_t WaitTime    = 100;
+        uint16_t WaitTime    = 500;
         uint16_t TimeElapsed = 0;
         while( RegisterStateSwitcher != SignalFillEnd)
         {          TimeElapsed += 5; osDelay(5/portTICK_PERIOD_MS);
@@ -304,7 +306,6 @@ public:
         Result = (RegisterStateSwitcher == SignalFillEnd);
 
         HAL_ADC_Stop_DMA(Device);
-        Regim = ReadyMode;
 
         return Result;
     };
@@ -323,6 +324,9 @@ public:
     void SetModeReady() {SetModeContinous(false);};
     void SetModeContinous(bool OnOff)
     {
+        if(Regim == ContinousMode && OnOff == true ) return; 
+        if(Regim == ReadyMode     && OnOff == false) return; 
+
         Device->Init.DMAContinuousRequests = DISABLE;
         Device->Init.ContinuousConvMode = DISABLE;
 
@@ -333,7 +337,6 @@ public:
         }
         
         ReinitDevice();
-
         eprintf("[ ADC SET CONTINOUS MODE ] %d  CHANNEL: %d %d\r\n ", OnOff ); 
                                                                               
 
@@ -490,18 +493,3 @@ public:
 };
 
 #endif //GENERIC_SIGNAL_CONTROL_H
-
-//Device->Instance = ADC1;
-//Device->Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV32;
-//Device->Init.Resolution = ADC_RESOLUTION_12B;
-//Device->Init.DataAlign = ADC_DATAALIGN_RIGHT;
-//Device->Init.GainCompensation = 0;
-//Device->Init.ScanConvMode = ADC_SCAN_DISABLE;
-//Device->Init.EOCSelection = ADC_EOC_SEQ_CONV;
-//Device->Init.LowPowerAutoWait = DISABLE;
-//Device->Init.NbrOfConversion = 1;
-//Device->Init.DiscontinuousConvMode = DISABLE;
-//Device->Init.ExternalTrigConv = ADC_SOFTWARE_START;
-//Device->Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-//Device->Init.Overrun = ADC_OVR_DATA_PRESERVED;
-//Device->Init.OversamplingMode = DISABLE;

@@ -92,9 +92,9 @@ void DeviceTypeConnectionUDP::PutMessageToSend(MessagePositionState& Message)
 
 uint8_t DeviceTypeConnectionUDP::sendDataChunked(uint8_t* Data, uint16_t DataSize)
 {
-	while(DataSize >= 300)
+	while(DataSize >= 128)
 	{
-	ResultTransmission = sendto(NumberSocket,Data, 200, IPRemote, PortRemote); osDelay(1);
+	ResultTransmission = sendto(NumberSocket,Data, 128, IPRemote, PortRemote); osDelay(2);
 	DataSize -= ResultTransmission; Data += ResultTransmission;
 	}
     if(DataSize == 0) return 0;

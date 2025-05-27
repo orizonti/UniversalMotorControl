@@ -3,7 +3,8 @@
 
 struct MessageCommand
 {
-  uint8_t Command;
+  uint16_t NodeType;
+  uint16_t Command;
 };
 
 struct MessageAiming
@@ -72,18 +73,18 @@ public:
 
   uint16_t DataVector[S];
   uint16_t DataSize = 0;
-  uint16_t DataCapacity = S;
+  uint16_t DataCapacity = S-1;
 
-  void Clear() { for(auto& val: DataVector) val = 0xF1F2;  DataSize = DataCapacity;}
+  void Clear() { for(int n = 0; n < S; n++) DataVector[n] = 0xF1F2;  DataSize = DataCapacity;}
   friend void operator>>(uint16_t Value, MessageMeasureSeries& Store) { Store.DataVector[Store.DataSize] = Value; 
                                                                                          Store.DataSize++; }
 
 };
 
-
 using MessageControl1 = MessageAimingDual;
 using MessageControl2 = MessageCalibration;
 using MessageControl3 = MessageCommand;
+
 using MessageControl4 = MessageCheckConnection;
 using MessageControl5 = MessageCloseConnection;
 
