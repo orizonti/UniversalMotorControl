@@ -53,7 +53,7 @@ private:
 
 	W5500InterfaceClass* EthernetInterface;
 
-	MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC> MessagePosition;
+	MessageGeneric<MessagePositionState, MESSAGE_HEADER_GENERIC> MessagePosition;
 	MessageGeneric<MessageMeasure1, MESSAGE_HEADER_GENERIC>* MessageMeasure = nullptr;
 
 	//uint8_t  IPRemote[4] = {192,168,1,113};

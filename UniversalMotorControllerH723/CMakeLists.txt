@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.20)
-
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -11,10 +10,10 @@ add_executable(${PROJECT_NAME})
 add_st_target_properties(${PROJECT_NAME})
 
 include_directories("${PROJECT_SOURCE_DIR}/Drivers/ETHERNET")
-include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/Inc")
-include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy")
-include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/CMSIS/Include")
-include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/CMSIS/Device/ST/STM32G4XX/Include")
+include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc")
+include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy")
+include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/CMSIS/Include")
+include_directories("{PROJECT_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/CMSIS/Device/ST/STM32G4XX/Include")
 include_directories("{PROJECT_SOURCE_DIR}/Core/Inc")
 include_directories("C:/HEADERS/STM32_HEADERS")
 include_directories("C:/STD_HEADERS")

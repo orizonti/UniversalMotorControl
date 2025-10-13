@@ -39,6 +39,7 @@ extern "C"
 
 #include "TCPInterface.h"
 #include "AimingModules.h"
+#include <utility>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,13 +64,16 @@ DMA_HandleTypeDef hdma_adc2;
 
 DAC_HandleTypeDef hdac1;
 
+FDCAN_HandleTypeDef hfdcan1;
+
 OSPI_HandleTypeDef hospi1;
 
 SPI_HandleTypeDef hspi2;
 SPI_HandleTypeDef hspi3;
-SPI_HandleTypeDef hspi4;
 
 TIM_HandleTypeDef htim1;
+TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart2;
@@ -125,17 +129,19 @@ void PeriphCommonClock_Config(void);
 static void MPU_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_DAC1_Init(void);
 static void MX_OCTOSPI1_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_SPI3_Init(void);
-static void MX_SPI4_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_USART6_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_ADC2_Init(void);
+static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
+static void MX_FDCAN1_Init(void);
+static void MX_DAC1_Init(void);
 void RunTaskMonitoring(void *argument);
 void RunTaskControl(void *argument);
 void RunTaskMeasure(void *argument);
@@ -159,8 +165,8 @@ bool FLAG_MEASURE_THREAD_SUSPEND = false;
 using DeviceTypeDACInternal     = DeviceDACControl<DAC_HandleTypeDef, uint16_t,1, DAC_INTERNAL>;
 using DeviceTypeDACInternalDual = DeviceDACControl<DAC_HandleTypeDef, uint16_t,2, DAC_INTERNAL>;
 
-using DeviceTypeDACExternal     = DeviceDACControl<SPI_HandleTypeDef, int16_t,1, DAC_SPI_8550> ;
-using DeviceTypeDACExternalDual = DeviceDACControl<SPI_HandleTypeDef, int16_t,2, DAC_SPI_8550> ;
+using DeviceTypeDACExternal     = DeviceDACControl<SPI_HandleTypeDef, uint16_t,1, DAC_SPI_8653> ;
+using DeviceTypeDACExternalDual = DeviceDACControl<SPI_HandleTypeDef, uint16_t,2, DAC_SPI_8653> ;
 
 //=========================================================================================
 MessageInternalMonitoring MessageMonitoringStatic;
@@ -188,14 +194,75 @@ DeviceTypeDACInternal DeviceDACInternalChannel1{hdac1,DAC_CHANNEL_1};
 DeviceTypeDACInternal DeviceDACInternalChannel2{hdac1,DAC_CHANNEL_2};
 
 DeviceTypeDACInternalDual DeviceDACInternal{hdac1};
-//DeviceTypeDACExternalDual DeviceDACExternal{hspi3, std::make_pair(SPI3_CS_GPIO_Port, SPI3_CS_Pin)};
-DeviceTypeDACExternalDual DeviceDACExternal{hspi3,std::make_pair(SPI3_CS_GPIO_Port, SPI3_CS_Pin),
-	                                        hspi4,std::make_pair(SPI4_CS_GPIO_Port, SPI4_CS_Pin)};
+DeviceTypeDACExternalDual DeviceDACExternal{hspi2, std::make_pair(SPI2_CS_DAC_GPIO_Port, SPI2_CS_DAC_Pin)};
+//DeviceTypeDACExternalDual DeviceDACExternal{hspi3,std::make_pair(SPI3_CS_GPIO_Port, SPI3_CS_Pin),
+//	                                        hspi4,std::make_pair(SPI4_CS_GPIO_Port, SPI4_CS_Pin)};
 
 
 DeviceTypeConnectionUDP ConnectionRemote;
-DeviceTypeScanator<DeviceTypeADC<1>, DeviceTypeDACExternalDual>
-                        DeviceScanator{&DeviceADC1,&DeviceADC2,&DeviceDACExternal};
+//DeviceTypeScanator<DeviceTypeADC<1>, DeviceTypeDACExternalDual>
+//                        DeviceScanator{&DeviceADC1,&DeviceADC2,&DeviceDACExternal};
+
+//TO_DELETE
+  std::pair<int16_t, int16_t> SensorScanator{0,0};
+  std::pair<int16_t, int16_t> ControlScanator{0,0};
+  std::pair<int16_t, int16_t> InputScanator{0,0};
+  int16_t TestValue = 0;
+  int counter = 0;
+
+
+float Gain1 = 22.2;
+float Gain2 = 23.6;
+
+int32_t Offset1 = -1504;
+int32_t Offset2 = -1467;
+
+int32_t Offset2_1 = 0;
+int32_t Offset2_2 = 0;
+
+int16_t RegSignalInput[50];
+int16_t RegSignalOutput[50];
+int16_t* PosSignalInput = RegSignalInput;
+int16_t* PosSignalOutput = RegSignalOutput;
+
+std::pair<uint16_t,uint16_t> DACControlSignal;
+
+void ScanatorTestSinus()
+{
+  //ExternalDACControl.RegisterFlag(TransmissionFlagsSPI);
+
+  //uint16_t AMPLITUDE  = 32766;
+  //uint16_t OFFSET1 = 32766;
+  //uint16_t OFFSET2 = 32766;
+
+  uint16_t AMPLITUDE  = 20000;
+  uint16_t OFFSET1 = 20000;
+  uint16_t OFFSET2 = 20000;
+
+  uint16_t COUNTER = 0;
+  uint16_t PERIOD       = 360/2;
+//====================================
+  eprintf("[START SINUS GENERATE  ] \r\n"); //osDelay(2);
+
+  while(true)
+  {
+    COUNTER++; if(COUNTER == PERIOD) COUNTER = 0;
+    DACControlSignal.first  = OFFSET2 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
+    DACControlSignal.second = OFFSET1 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
+    //DACControlSignal.second += DACControlSignal.second/50;
+    //DACControlSignal.second += AMPLITUDE*0.13;
+    DACControlSignal.second *= 0.95;
+
+    //DACControlSignal | DeviceDACExternal;
+    DeviceDACExternal.SetCoord(DACControlSignal); osDelay(1);
+    //WriteDACValue(DAC_VALUE , 1, BUFFER_COMMAND);
+    //WriteDACValue(DAC_VALUE2, 2, BUFFER_COMMAND);
+    //counter++; if(counter > 1000)  { eprintf("[GENERATE SINUS] \r\n"); counter = 0; }
+
+  }
+}
+//====================
+
 //=========================================================================================
 
 ModuleTypeDelayMeasure<DeviceTypeConnectionUDP, DeviceTypeDACInternal, DeviceTypeDACInternal>
@@ -214,11 +281,11 @@ ModuleTypeDelayMeasure<DeviceTypeConnectionUDP, DeviceTypeDACInternal, DeviceTyp
 //                                                 &DeviceDACInternalChannel2, //DELAY MONITOR
 //                                              };
 //
-ModuleTypeResponceMeasure<DeviceTypeADC<1>, DeviceTypeDACExternal>
-                                              ModuleResponceMeasure
-                                              { &DeviceADC1,
-                                                &DeviceDACExternal.Channel2,
-                                              };
+//ModuleTypeResponceMeasure<DeviceTypeADC<1>, DeviceTypeDACExternal>
+//                                              ModuleResponceMeasure
+//                                              { &DeviceADC1,
+//                                                &DeviceDACExternal.Channel1,
+//                                              };
 
 //ModuleTypeResponceMeasure<DeviceTypeADC<1>, DeviceTypeDACInternal>
 //                                              ModuleResponceMeasure
@@ -288,31 +355,38 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_DAC1_Init();
   MX_OCTOSPI1_Init();
   MX_SPI2_Init();
   MX_SPI3_Init();
-  MX_SPI4_Init();
   MX_TIM1_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
   MX_USART6_UART_Init();
   MX_ADC1_Init();
   MX_ADC2_Init();
+  MX_TIM3_Init();
+  MX_TIM4_Init();
+  MX_FDCAN1_Init();
+  MX_DAC1_Init();
   /* USER CODE BEGIN 2 */
 
   PrintStartMessages();
 
-  DeviceDACInternal.Init();
-  DeviceADC1.Init();
-  DeviceADC2.Init();
-  DeviceADC1.ExposeStateSwitcher(StateSwitchersADC);
-  DeviceADC2.ExposeStateSwitcher(StateSwitchersADC);
+  //DeviceDACInternal.Init();
+  //DeviceADC1.Init();
+  //DeviceADC2.Init();
+  //DeviceADC1.ExposeStateSwitcher(StateSwitchersADC);
+  //DeviceADC2.ExposeStateSwitcher(StateSwitchersADC);
 
   DeviceDACExternal.RegisterFlag(FlagSwitchersSPI);
 
-  decltype(DeviceDACExternal.OutputSignal) Signal{0,0};
-  Signal | DeviceDACExternal;
+  //decltype(DeviceDACExternal.OutputSignal) Signal{0,0};
+  //Signal | DeviceDACExternal;
+
+  HAL_GPIO_WritePin(EBT_Reset_GPIO_Port,EBT_Reset_Pin, GPIO_PIN_RESET);
+  HAL_Delay(200);
+  HAL_GPIO_WritePin(EBT_Reset_GPIO_Port,EBT_Reset_Pin, GPIO_PIN_SET);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -397,19 +471,18 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
-  RCC_OscInitStruct.HSICalibrationValue = 64;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 34;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 2;
+  RCC_OscInitStruct.PLL.PLLN = 44;
   RCC_OscInitStruct.PLL.PLLP = 1;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
-  RCC_OscInitStruct.PLL.PLLFRACN = 3072;
+  RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -445,24 +518,25 @@ void PeriphCommonClock_Config(void)
   /** Initializes the peripherals clock
   */
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_ADC|RCC_PERIPHCLK_SPI3
-                              |RCC_PERIPHCLK_SPI2;
-  PeriphClkInitStruct.PLL2.PLL2M = 32;
-  PeriphClkInitStruct.PLL2.PLL2N = 129;
-  PeriphClkInitStruct.PLL2.PLL2P = 2;
-  PeriphClkInitStruct.PLL2.PLL2Q = 2;
-  PeriphClkInitStruct.PLL2.PLL2R = 2;
-  PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_1;
+                              |RCC_PERIPHCLK_SPI2|RCC_PERIPHCLK_FDCAN;
+  PeriphClkInitStruct.PLL2.PLL2M = 2;
+  PeriphClkInitStruct.PLL2.PLL2N = 40;
+  PeriphClkInitStruct.PLL2.PLL2P = 4;
+  PeriphClkInitStruct.PLL2.PLL2Q = 4;
+  PeriphClkInitStruct.PLL2.PLL2R = 4;
+  PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_3;
   PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
   PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
-  PeriphClkInitStruct.PLL3.PLL3M = 32;
-  PeriphClkInitStruct.PLL3.PLL3N = 129;
-  PeriphClkInitStruct.PLL3.PLL3P = 2;
-  PeriphClkInitStruct.PLL3.PLL3Q = 2;
-  PeriphClkInitStruct.PLL3.PLL3R = 2;
-  PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_1;
+  PeriphClkInitStruct.PLL3.PLL3M = 2;
+  PeriphClkInitStruct.PLL3.PLL3N = 40;
+  PeriphClkInitStruct.PLL3.PLL3P = 4;
+  PeriphClkInitStruct.PLL3.PLL3Q = 4;
+  PeriphClkInitStruct.PLL3.PLL3R = 4;
+  PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
   PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
   PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
   PeriphClkInitStruct.Spi123ClockSelection = RCC_SPI123CLKSOURCE_PLL3;
+  PeriphClkInitStruct.FdcanClockSelection = RCC_FDCANCLKSOURCE_PLL2;
   PeriphClkInitStruct.AdcClockSelection = RCC_ADCCLKSOURCE_PLL2;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
   {
@@ -492,10 +566,10 @@ static void MX_ADC1_Init(void)
   /** Common config
   */
   hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
   hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.NbrOfConversion = 1;
@@ -560,10 +634,10 @@ static void MX_ADC2_Init(void)
   /** Common config
   */
   hadc2.Instance = ADC2;
-  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV8;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV2;
   hadc2.Init.Resolution = ADC_RESOLUTION_12B;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc2.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc2.Init.LowPowerAutoWait = DISABLE;
   hadc2.Init.ContinuousConvMode = ENABLE;
   hadc2.Init.NbrOfConversion = 1;
@@ -650,6 +724,59 @@ static void MX_DAC1_Init(void)
 }
 
 /**
+  * @brief FDCAN1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_FDCAN1_Init(void)
+{
+
+  /* USER CODE BEGIN FDCAN1_Init 0 */
+
+  /* USER CODE END FDCAN1_Init 0 */
+
+  /* USER CODE BEGIN FDCAN1_Init 1 */
+
+  /* USER CODE END FDCAN1_Init 1 */
+  hfdcan1.Instance = FDCAN1;
+  hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
+  hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
+  hfdcan1.Init.AutoRetransmission = DISABLE;
+  hfdcan1.Init.TransmitPause = DISABLE;
+  hfdcan1.Init.ProtocolException = DISABLE;
+  hfdcan1.Init.NominalPrescaler = 16;
+  hfdcan1.Init.NominalSyncJumpWidth = 1;
+  hfdcan1.Init.NominalTimeSeg1 = 1;
+  hfdcan1.Init.NominalTimeSeg2 = 1;
+  hfdcan1.Init.DataPrescaler = 1;
+  hfdcan1.Init.DataSyncJumpWidth = 1;
+  hfdcan1.Init.DataTimeSeg1 = 1;
+  hfdcan1.Init.DataTimeSeg2 = 1;
+  hfdcan1.Init.MessageRAMOffset = 0;
+  hfdcan1.Init.StdFiltersNbr = 0;
+  hfdcan1.Init.ExtFiltersNbr = 0;
+  hfdcan1.Init.RxFifo0ElmtsNbr = 0;
+  hfdcan1.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
+  hfdcan1.Init.RxFifo1ElmtsNbr = 0;
+  hfdcan1.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
+  hfdcan1.Init.RxBuffersNbr = 0;
+  hfdcan1.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
+  hfdcan1.Init.TxEventsNbr = 0;
+  hfdcan1.Init.TxBuffersNbr = 0;
+  hfdcan1.Init.TxFifoQueueElmtsNbr = 0;
+  hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
+  hfdcan1.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
+  if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN FDCAN1_Init 2 */
+
+  /* USER CODE END FDCAN1_Init 2 */
+
+}
+
+/**
   * @brief OCTOSPI1 Initialization Function
   * @param None
   * @retval None
@@ -660,6 +787,8 @@ static void MX_OCTOSPI1_Init(void)
   /* USER CODE BEGIN OCTOSPI1_Init 0 */
 
   /* USER CODE END OCTOSPI1_Init 0 */
+
+  OSPIM_CfgTypeDef sOspiManagerCfg = {0};
 
   /* USER CODE BEGIN OCTOSPI1_Init 1 */
 
@@ -682,6 +811,13 @@ static void MX_OCTOSPI1_Init(void)
   hospi1.Init.MaxTran = 0;
   hospi1.Init.Refresh = 0;
   if (HAL_OSPI_Init(&hospi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sOspiManagerCfg.ClkPort = 1;
+  sOspiManagerCfg.NCSPort = 1;
+  sOspiManagerCfg.IOLowPort = HAL_OSPIM_IOPORT_1_LOW;
+  if (HAL_OSPIM_Config(&hospi1, &sOspiManagerCfg, HAL_OSPI_TIMEOUT_DEFAULT_VALUE) != HAL_OK)
   {
     Error_Handler();
   }
@@ -712,9 +848,9 @@ static void MX_SPI2_Init(void)
   hspi2.Init.Direction = SPI_DIRECTION_2LINES;
   hspi2.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi2.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -757,12 +893,12 @@ static void MX_SPI3_Init(void)
   /* SPI3 parameter configuration*/
   hspi3.Instance = SPI3;
   hspi3.Init.Mode = SPI_MODE_MASTER;
-  hspi3.Init.Direction = SPI_DIRECTION_2LINES_TXONLY;
+  hspi3.Init.Direction = SPI_DIRECTION_2LINES;
   hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi3.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -784,54 +920,6 @@ static void MX_SPI3_Init(void)
   /* USER CODE BEGIN SPI3_Init 2 */
 
   /* USER CODE END SPI3_Init 2 */
-
-}
-
-/**
-  * @brief SPI4 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_SPI4_Init(void)
-{
-
-  /* USER CODE BEGIN SPI4_Init 0 */
-
-  /* USER CODE END SPI4_Init 0 */
-
-  /* USER CODE BEGIN SPI4_Init 1 */
-
-  /* USER CODE END SPI4_Init 1 */
-  /* SPI4 parameter configuration*/
-  hspi4.Instance = SPI4;
-  hspi4.Init.Mode = SPI_MODE_MASTER;
-  hspi4.Init.Direction = SPI_DIRECTION_2LINES_TXONLY;
-  hspi4.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi4.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi4.Init.CLKPhase = SPI_PHASE_2EDGE;
-  hspi4.Init.NSS = SPI_NSS_SOFT;
-  hspi4.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
-  hspi4.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi4.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi4.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi4.Init.CRCPolynomial = 0x0;
-  hspi4.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  hspi4.Init.NSSPolarity = SPI_NSS_POLARITY_LOW;
-  hspi4.Init.FifoThreshold = SPI_FIFO_THRESHOLD_01DATA;
-  hspi4.Init.TxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
-  hspi4.Init.RxCRCInitializationPattern = SPI_CRC_INITIALIZATION_ALL_ZERO_PATTERN;
-  hspi4.Init.MasterSSIdleness = SPI_MASTER_SS_IDLENESS_00CYCLE;
-  hspi4.Init.MasterInterDataIdleness = SPI_MASTER_INTERDATA_IDLENESS_00CYCLE;
-  hspi4.Init.MasterReceiverAutoSusp = SPI_MASTER_RX_AUTOSUSP_DISABLE;
-  hspi4.Init.MasterKeepIOState = SPI_MASTER_KEEP_IO_STATE_DISABLE;
-  hspi4.Init.IOSwap = SPI_IO_SWAP_DISABLE;
-  if (HAL_SPI_Init(&hspi4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI4_Init 2 */
-
-  /* USER CODE END SPI4_Init 2 */
 
 }
 
@@ -880,6 +968,112 @@ static void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 65535;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 0;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+  HAL_TIM_MspPostInit(&htim4);
 
 }
 
@@ -1044,8 +1238,8 @@ static void MX_DMA_Init(void)
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-/* USER CODE BEGIN MX_GPIO_Init_1 */
-/* USER CODE END MX_GPIO_Init_1 */
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+  /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
@@ -1056,37 +1250,59 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_14, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOE, BLUE_LED_Pin|WHITE_LED_Pin|DIR_MOTOR2_Pin|ENABLE_MOTORS_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, W5500_Reset_Pin|SPI2_CS_Pin|SPI3_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GREEN_LED_Pin|DIR_MOTOR1_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(SPI4_CS_GPIO_Port, SPI4_CS_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, SPI2_CS_DAC_Pin|SPI3_CS_W5500_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PC14 */
-  GPIO_InitStruct.Pin = GPIO_PIN_14;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, W5500_Reset_Pin|EBT_Reset_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : BLUE_LED_Pin WHITE_LED_Pin DIR_MOTOR2_Pin ENABLE_MOTORS_Pin */
+  GPIO_InitStruct.Pin = BLUE_LED_Pin|WHITE_LED_Pin|DIR_MOTOR2_Pin|ENABLE_MOTORS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : SW2_USER_Pin */
+  GPIO_InitStruct.Pin = SW2_USER_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(SW2_USER_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : GREEN_LED_Pin DIR_MOTOR1_Pin */
+  GPIO_InitStruct.Pin = GREEN_LED_Pin|DIR_MOTOR1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : W5500_Reset_Pin SPI2_CS_Pin SPI3_CS_Pin */
-  GPIO_InitStruct.Pin = W5500_Reset_Pin|SPI2_CS_Pin|SPI3_CS_Pin;
+  /*Configure GPIO pin : PE9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_9;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : SPI2_CS_DAC_Pin SPI3_CS_W5500_Pin */
+  GPIO_InitStruct.Pin = SPI2_CS_DAC_Pin|SPI3_CS_W5500_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : SPI4_CS_Pin */
-  GPIO_InitStruct.Pin = SPI4_CS_Pin;
+  /*Configure GPIO pins : W5500_Reset_Pin EBT_Reset_Pin */
+  GPIO_InitStruct.Pin = W5500_Reset_Pin|EBT_Reset_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(SPI4_CS_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
@@ -1103,19 +1319,18 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 {
    *StateSwitchersADC[hadc->Instance] = DeviceTypeADC<1>::StateSwitcher::SignalFillEnd;
 
-   //if(hadc->Instance == ADC1) FLAG_ADC1_END = true;
-   //if(hadc->Instance == ADC2) FLAG_ADC2_END = true;
+   if(hadc->Instance == ADC1) FLAG_ADC1_END = true;
+   if(hadc->Instance == ADC2) FLAG_ADC2_END = true;
 
-   FLAG_ADC1_END = true;
-   FLAG_ADC2_END = true;
 }
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
 {
    *StateSwitchersADC[hadc->Instance] = DeviceTypeADC<1>::StateSwitcher::SignalFillTop;
 
-   //if(hadc->Instance == ADC1) FLAG_ADC1_END = false;
-   //if(hadc->Instance == ADC2) FLAG_ADC2_END = false;
+   if(hadc->Instance == ADC1) FLAG_ADC1_END = false;
+   if(hadc->Instance == ADC2) FLAG_ADC2_END = false;
+
 }
 /* USER CODE END 4 */
 
@@ -1174,16 +1389,17 @@ void InitMessageProcessing(DispatcherType* Dispatcher)
        MessageAimingDual* MessageAiming   = nullptr;
     MessagePositionState* MessagePosition = nullptr;
 
-    std::pair<uint16_t,uint16_t> ControlOutputSignal;
+    std::pair<int16_t,int16_t> ControlOutputSignal;
 
     Dispatcher->AppendCallback<MessageAimingDual> ( [MessageAiming, ControlOutputSignal](MessageType& Message) mutable
     {
        MessageAiming = DispatcherType::ExtractData<MessageAimingDual>(&Message);
-       ControlOutputSignal.first  =  MessageAiming->Channel1.Position;
-       ControlOutputSignal.second = -MessageAiming->Channel2.Position;
-       ControlOutputSignal | DeviceDACInternal;
+       ControlOutputSignal.first  = MessageAiming->Channel1.Position;
+       ControlOutputSignal.second = MessageAiming->Channel2.Position;
+       //ControlOutputSignal | DeviceDACInternal;
          
-       *MessageAiming | DeviceScanator;
+       //*MessageAiming | DeviceScanator;
+       //ControlOutputSignal | DeviceScanator;
 
        //eprintf("[ GET AIMING MESSAGE %d %d] \r\n", (int)MessageAiming->Channel1.Position,
        //                                            (int)MessageAiming->Channel2.Position);
@@ -1217,7 +1433,7 @@ void InitMessageProcessing(DispatcherType* Dispatcher)
     {
        auto Command = DispatcherType::ExtractData<MessageCommand>(&Message);
 
-         if(Command->NodeType == DEVICE_TYPE_SCANATOR) *Command | DeviceScanator;
+         //if(Command->NodeType == DEVICE_TYPE_SCANATOR) *Command | DeviceScanator;
 
     });
 
@@ -1265,19 +1481,34 @@ void RunTaskControl(void *argument)
   //===============================================================
   MessageGeneric<MessagePositionState, HEADER_TYPE> MessagePosition;
 
-  DeviceADC1.SetModeReady();
-  DeviceADC2.SetModeReady();
+  //DeviceADC1.SetModeReady();
+  //DeviceADC2.SetModeReady();
 
   //DeviceADC1.SetModeContinous(true);
   //DeviceADC2.SetModeContinous(true);
 
-  //TestSinusDAC_SPI();
-    //ADCTest();
+  //DeviceADC1.StartWork(true);
+  //DeviceADC2.StartWork(true);
+
+  //DeviceScanator.SetToNull();
+
+  ScanatorTestSinus();
+  //ADCTest();
+
   while(true)
   {
 	  ConnectionRemote.GetIncommingMessages();
 	 *ConnectionRemote.RingBufferMessages | Dispatcher;
-    ConnectionRemote.SendPendingMessage();
+      ConnectionRemote.SendPendingMessage();
+
+    if(counter >= 1000)
+    {
+    	//SensorScanator = DeviceScanator.GetSensor();
+    	//ControlScanator = DeviceScanator.GetControl();
+    	//InputScanator = DeviceScanator.GetInput();
+    	eprintf("[ WAIT COMMAND ] \r\n");
+    	counter = 0;
+    }  counter++;
 
     //ModuleDelayMeasureConnection.MeasureClosedLoopDelay();
     //ModuleDelayMeasureControlLoop.MeasureClosedLoopDelay();
@@ -1302,7 +1533,7 @@ void RunTaskMeasure(void *argument)
   osDelay(20);
   eprintf("[RUN TASK MEASURE] \r\n");
 
-  ModuleResponceMeasure.InitModule();
+  //ModuleResponceMeasure.InitModule();
 
   MessageCalibration CommandCalibration;
 
@@ -1312,15 +1543,15 @@ void RunTaskMeasure(void *argument)
       if(osMessageQueueGetCount(QueueMessageCalibrationHandle) != 0)
       {
 	     osMessageQueueGet(QueueMessageCalibrationHandle, &CommandCalibration, 0, 0);
-	     CommandCalibration >> ModuleResponceMeasure;
+	     //CommandCalibration >> ModuleResponceMeasure;
       }
 
-      if(ModuleResponceMeasure.STATE_IDLE)
-      {
-       eprintf("MEASURE TASK SUSPEND \r\n");
-       FLAG_MEASURE_THREAD_SUSPEND = true;
-       osThreadSuspend(TaskMeasureHandle);
-      }
+      //if(ModuleResponceMeasure.STATE_IDLE)
+      //{
+      // eprintf("MEASURE TASK SUSPEND \r\n");
+      // FLAG_MEASURE_THREAD_SUSPEND = true;
+      // osThreadSuspend(TaskMeasureHandle);
+      //}
       osDelay(1);
 
   }
@@ -1370,7 +1601,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   /* USER CODE BEGIN Callback 0 */
 
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM5) {
+  if (htim->Instance == TIM5)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
@@ -1405,8 +1637,7 @@ void Error_Handler(void)
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.

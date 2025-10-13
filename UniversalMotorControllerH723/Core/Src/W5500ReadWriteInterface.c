@@ -12,34 +12,34 @@
 extern char OutputBuffer[128];
 extern char InputBuffer[128];
 //
-extern SPI_HandleTypeDef hspi2;
-extern UART_HandleTypeDef huart1;
+extern SPI_HandleTypeDef hspi3;
+extern UART_HandleTypeDef huart2;
 
 
 void WriteDebugMessage(char* Mess)
 {
-	HAL_UART_Transmit(&huart1, Mess, strlen(Mess),10);
+	HAL_UART_Transmit(&huart2, Mess, strlen(Mess),10);
 }
 
 void W5500_Select(void)
 {
-    HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(SPI3_CS_W5500_GPIO_Port, SPI3_CS_W5500_Pin, GPIO_PIN_RESET);
 
 }
 
 void W5500_Unselect(void)
 {
-    HAL_GPIO_WritePin(SPI2_CS_GPIO_Port, SPI2_CS_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(SPI3_CS_W5500_GPIO_Port, SPI3_CS_W5500_Pin, GPIO_PIN_SET);
 }
 
 void W5500_ReadBuff(uint8_t* buff, uint16_t len)
 {
-    HAL_SPI_Receive(&hspi2, buff, len, HAL_MAX_DELAY);
+    HAL_SPI_Receive(&hspi3, buff, len, HAL_MAX_DELAY);
 }
 
 void W5500_WriteBuff(uint8_t* buff, uint16_t len)
 {
-    HAL_SPI_Transmit(&hspi2, buff, len, HAL_MAX_DELAY);
+    HAL_SPI_Transmit(&hspi3, buff, len, HAL_MAX_DELAY);
 }
 
 uint8_t W5500_ReadByte(void)

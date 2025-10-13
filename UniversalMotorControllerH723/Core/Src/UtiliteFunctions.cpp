@@ -43,7 +43,6 @@ using DeviceTypeDACExternalDual = DeviceDACControl<SPI_HandleTypeDef, int16_t,2,
 
 extern SPI_HandleTypeDef hspi2;
 extern SPI_HandleTypeDef hspi3;
-extern SPI_HandleTypeDef hspi4;
 
 extern std::map<SPI_TypeDef*,bool*> TransmissionFlagsSPI;
 
@@ -54,26 +53,26 @@ bool FLAG_SPI3_TRANSMIT = 0;
 bool FLAG_SPI4_TRANSMIT = 0;
 
 SPI_HandleTypeDef* CURRENT_SPI_PORT      = &hspi3;
-     uint16_t      CURRENT_SPI_CS_PIN    = SPI3_CS_Pin;
-GPIO_TypeDef*      CURRENT_SPI_CS_PORT   = SPI3_CS_GPIO_Port;
+     uint16_t      CURRENT_SPI_CS_PIN    = SPI3_CS_W5500_Pin;
+GPIO_TypeDef*      CURRENT_SPI_CS_PORT   = SPI3_CS_W5500_GPIO_Port;
      bool*         CURRENT_FLAG_TRANSMIT = &FLAG_SPI3_TRANSMIT;
      uint8_t       CONFIG_REGISTER = 0;
 
 
 void WriteDACValue(int16_t Value, uint8_t Channel, uint8_t* Buffer)
 {
-	CURRENT_SPI_CS_PIN  = SPI3_CS_Pin;
-	CURRENT_SPI_CS_PORT = SPI3_CS_GPIO_Port;
+	CURRENT_SPI_CS_PIN  = SPI3_CS_W5500_Pin;
+	CURRENT_SPI_CS_PORT = SPI3_CS_W5500_GPIO_Port;
 	CURRENT_SPI_PORT    = &hspi3;
 	CURRENT_FLAG_TRANSMIT = &FLAG_SPI3_TRANSMIT;
 
-	if(Channel == 2)
-	{
-	CURRENT_SPI_CS_PIN  = SPI4_CS_Pin;
-	CURRENT_SPI_CS_PORT = SPI4_CS_GPIO_Port;
-	CURRENT_SPI_PORT    = &hspi4;
-	CURRENT_FLAG_TRANSMIT = &FLAG_SPI4_TRANSMIT;
-	}
+	//if(Channel == 2)
+	//{
+	//CURRENT_SPI_CS_PIN  = SPI4_CS_Pin;
+	//CURRENT_SPI_CS_PORT = SPI4_CS_GPIO_Port;
+	//CURRENT_SPI_PORT    = &hspi4;
+	//CURRENT_FLAG_TRANSMIT = &FLAG_SPI4_TRANSMIT;
+	//}
 
 	HAL_GPIO_WritePin(CURRENT_SPI_CS_PORT, CURRENT_SPI_CS_PIN, GPIO_PIN_RESET);
 
@@ -89,12 +88,13 @@ void WriteDACValue(int16_t Value, uint8_t Channel, uint8_t* Buffer)
 }
 //==============================================================
 
+extern int16_t TestValue;
 
 void TestSinusDAC_SPI()
 {
   //ExternalDACControl.RegisterFlag(TransmissionFlagsSPI);
 
-  uint16_t AMPLITUDE  = 15000;
+  uint16_t AMPLITUDE  = 28000;
   uint16_t OFFSET1 =  0;
   uint16_t OFFSET2 = 0;
 
@@ -109,12 +109,14 @@ void TestSinusDAC_SPI()
   {
     COUNTER++; if(COUNTER == PERIOD) COUNTER = 0;
     DACControlSignal.first  = OFFSET2 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
-    DACControlSignal.second = OFFSET1 + AMPLITUDE*std::cos(COUNTER*2.0*M_PI/PERIOD);
+    DACControlSignal.second = OFFSET1 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
     //DACControlSignal.second += DACControlSignal.second/50;
     //DACControlSignal.second += AMPLITUDE*0.13;
-    DACControlSignal.first *= 0.97;
+    //DACControlSignal.first *= 0.96;
+    //DACControlSignal.first = 0;
 
-    DeviceDACExternal.SetCoord(DACControlSignal); HAL_Delay(1);
+    DeviceDACExternal.SetCoord(DACControlSignal);
+    HAL_Delay(1);
 
     //WriteDACValue(DAC_VALUE , 1, BUFFER_COMMAND);
     //WriteDACValue(DAC_VALUE2, 2, BUFFER_COMMAND);

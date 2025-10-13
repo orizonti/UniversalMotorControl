@@ -84,8 +84,8 @@ class DeviceTypeScanator
   }
   //=================================================
 
-  friend void operator|(MessageCommand& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
-  void SetInput(MessageCommand& Message) 
+  friend void operator|(CommandDevice<0>& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
+  void SetInput(CommandDevice<0>& Message)
   { 
     if(Message.Command == COMMAND_MONITORING_TOGGLE) STATE_MONITORING = !STATE_MONITORING; 
            eprintf("[ SCANATOR SET MONITORING %d ] \r\n", STATE_MONITORING);
@@ -157,12 +157,12 @@ class ModuleTypeDelayMeasure
 
   void SetInput(MessagePositionState& InputPosition) {InputSignal = InputPosition.Position1; }
 
-  friend void operator|(MessageCalibration& MessageCalibration, ModuleTypeDelayMeasure& MeasureNode)
+  friend void operator|(CommandCalibration& CommandCalibration, ModuleTypeDelayMeasure& MeasureNode)
   {
-    MeasureNode.PerformCommand(MessageCalibration);
+    MeasureNode.PerformCommand(CommandCalibration);
   }        
 
-  void PerformCommand(MessageCalibration& CommandMessage)
+  void PerformCommand(CommandCalibration& CommandMessage)
   {
    if(CommandMessage.Command == COMMAND_MEASURE_PROCESS_START) { if(STATE_IDLE) StartProcessMeasureDelay(1);};
    if(CommandMessage.Command == COMMAND_IDLE) StopProcess();
@@ -198,7 +198,7 @@ class ModuleTypeResponceMeasure
   void LinkToDevice(DEV_OUT* Device) { DeviceControl = Device;};
   void LinkToDevice(DEV_IN* Device)  { DeviceSignalInput = Device;};
 
-    MessageCalibration  Settings;
+    CommandCalibration  Settings;
     MessageMeasureType* MeasureStore;
   static MessagePositionState MessagePosition;
 
@@ -221,11 +221,11 @@ class ModuleTypeResponceMeasure
   void EndReadSeriesMeasure();
   void GetSeriesMeasure();
 
-  friend void operator>>(MessageCalibration& MessageCalibration, ModuleTypeResponceMeasure& CalibrationNode)
+  friend void operator>>(CommandCalibration& CommandCalibration, ModuleTypeResponceMeasure& CalibrationNode)
   {
-    CalibrationNode.PerformCommand(MessageCalibration);
+    CalibrationNode.PerformCommand(CommandCalibration);
   }
-               void PerformCommand(MessageCalibration& MessageCalibration);
+               void PerformCommand(CommandCalibration& CommandCalibration);
 
   private:
   static void MakeCalibrationStep(void* param) ;
@@ -329,10 +329,10 @@ void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::SetStateIdle()
 };
 
 template<typename DEV_IN, typename DEV_OUT>
-void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::PerformCommand(MessageCalibration& MessageCalibration)
+void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::PerformCommand(CommandCalibration& CommandCalibration)
 {
       STATE_IDLE = false;
-      Settings = MessageCalibration; 
+      Settings = CommandCalibration;
   if(Settings.Command == COMMAND_GET_SERIES)     { GetSeriesMeasure();             return; };
   if(Settings.Command == COMMAND_MEASURE_LINEAR) { ProcessLinearCalibration();     return; };
   if(Settings.Command == COMMAND_MEASURE_STEP)   { ProcessStepMeasure();           return; };

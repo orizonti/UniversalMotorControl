@@ -1,0 +1,12 @@
+../Drivers/ETHERNET/socket.c:197:8:close	4
+../Drivers/ETHERNET/socket.c:105:8:socket	19
+../Drivers/ETHERNET/socket.c:240:8:listen	6
+../Drivers/ETHERNET/socket.c:256:8:connect	11
+../Drivers/ETHERNET/socket.c:296:8:disconnect	7
+../Drivers/ETHERNET/socket.c:316:9:send	15
+../Drivers/ETHERNET/socket.c:384:9:recv	12
+../Drivers/ETHERNET/socket.c:430:9:sendto	15
+../Drivers/ETHERNET/socket.c:534:9:recvfrom	18
+../Drivers/ETHERNET/socket.c:716:9:ctlsocket	14
+../Drivers/ETHERNET/socket.c:762:9:setsockopt	14
+../Drivers/ETHERNET/socket.c:815:9:getsockopt	17

@@ -276,14 +276,20 @@ class DeviceTypeADC : public PassValueClass<uint16_t>
 public:
     enum Mode {ReadyMode = 0, ContinousMode, ActiveMode};
     enum StateSwitcher { SignalFillBottom = 0 , SignalFillTop, SignalFillEnd};
-    #define SIGNAL_STORE_SIZE 1000
+#define SIGNAL_STORE_SIZE 1800
 
     explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl, uint32_t Channel): 
     Device(DeviceControl), DeviceChannel(Channel) 
     { 
     };
     uint16_t OutputSignal = 0;
+    uint32_t OutputSignalSum = 0;
+    uint16_t AvarageSignal = 0;
+
     uint16_t SignalRegister[SIGNAL_STORE_SIZE];
+
+    uint16_t AvarageSize = SIGNAL_STORE_SIZE/2 - 10;
+
 
     Mode Regim = ContinousMode; 
     StateSwitcher RegisterStateSwitcher = SignalFillBottom;
@@ -294,6 +300,7 @@ public:
         bool Result = false;
         uint16_t WaitTime    = 2000;
         uint16_t TimeElapsed = 0;
+
         while( RegisterStateSwitcher != SignalFillEnd)
         {          TimeElapsed += 5; osDelay(5/portTICK_PERIOD_MS);
                 if(TimeElapsed > WaitTime) break;               }
@@ -317,12 +324,16 @@ public:
     void SetMeasureFrequency(uint32_t Devider);
 
     void SetModeReady() {SetModeContinous(false);};
+    void StartWork(bool OnOff)
+    {
+    	if(OnOff) { HAL_ADC_Start_DMA(Device, (uint32_t*)SignalRegister, SIGNAL_STORE_SIZE); }
+        else      { HAL_ADC_Stop_DMA(Device); }
+    };
+
     void SetModeContinous(bool OnOff)
     {
         //if(Regim == ContinousMode && OnOff == true ) return;
         //if(Regim == ReadyMode     && OnOff == false) return;
-        if( OnOff) eprintf("[ ADC SET CONTINOUS MODE ] %d \r\n ", OnOff );
-        if(!OnOff) eprintf("[ ADC SET ONE SHOT MODE ] %d \r\n ", OnOff );
 
         HAL_ADC_Stop_DMA(Device);  osDelay(1);
 
@@ -339,7 +350,9 @@ public:
         }
         
         ReinitDevice();
-                                                                              
+
+        if( OnOff) eprintf("[ ADC SET CONTINOUS MODE ] %d \r\n ", OnOff );
+        if(!OnOff) eprintf("[ ADC SET ONE SHOT MODE ] %d \r\n ", OnOff );
 
                   Regim = ReadyMode;
         if(OnOff) Regim = ContinousMode;
@@ -355,11 +368,11 @@ private:
 };
 
 template<>
-class DeviceTypeADC<2> : public PassCoordClass<uint16_t> 
+class DeviceTypeADC<2> : public PassCoordClass<uint16_t>
 {
 
 public:
-    explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl, 
+    explicit DeviceTypeADC(ADC_HandleTypeDef* DeviceControl,
                                ADC_HandleTypeDef* DeviceControl2)
                                {
                                 Channel1 = new DeviceTypeADC<1>(DeviceControl, ADC_CHANNEL_1);
@@ -367,19 +380,19 @@ public:
                                };
     ~DeviceTypeADC() { delete Channel1; delete Channel2;}
 
-    void SetMeasureFrequency(uint32_t Devider) {Channel1->SetMeasureFrequency(Devider); 
+    void SetMeasureFrequency(uint32_t Devider) {Channel1->SetMeasureFrequency(Devider);
                                                 Channel2->SetMeasureFrequency(Devider);};
 
     //bool WriteSignal();
 
-    void ExposeStateSwitchers(std::map<ADC_TypeDef*,DeviceTypeADC<1>::StateSwitcher* >& Switchers) 
-    { 
+    void ExposeStateSwitchers(std::map<ADC_TypeDef*,DeviceTypeADC<1>::StateSwitcher* >& Switchers)
+    {
          Channel1->ExposeStateSwitcher(Switchers);
          Channel2->ExposeStateSwitcher(Switchers);
     };
 
     std::pair<uint16_t,uint16_t> Signal{0,0};
-    void ReadSignal() { Signal.first  = Channel1->GetValue(); 
+    void ReadSignal() { Signal.first  = Channel1->GetValue();
                         Signal.second = Channel2->GetValue();}
 
 	void Init() { Channel1->Init(); Channel2->Init(); };
@@ -387,11 +400,11 @@ public:
     void SetCoord(const std::pair<uint16_t,uint16_t>& Value) { };
     const std::pair<uint16_t,uint16_t>& GetCoord() { ReadSignal(); return Signal;};
 
-    uint16_t GetValue(uint8_t channel) { if(channel > 1 ) return Channel1->GetValue(); 
+    uint16_t GetValue(uint8_t channel) { if(channel > 1 ) return Channel1->GetValue();
                                                                  Channel2->GetValue(); }
 
-    void WriteSignal(uint16_t* Buffer, int Size, uint8_t Channel) 
-    { 
+    void WriteSignal(uint16_t* Buffer, int Size, uint8_t Channel)
+    {
         if(Channel == 1) Channel1->WriteSignal(Buffer,Size);
         if(Channel == 2) Channel2->WriteSignal(Buffer,Size);
     };
@@ -420,8 +433,27 @@ void DeviceTypeADC<N_CHAN>::ReadSignal()
     return;
     }
 
-    if(RegisterStateSwitcher == SignalFillBottom) OutputSignal = SignalRegister[SIGNAL_STORE_SIZE-1];
-    if(RegisterStateSwitcher == SignalFillTop)    OutputSignal = SignalRegister[0];
+
+    uint8_t ReadPos = SIGNAL_STORE_SIZE/2 + 1;
+    if(RegisterStateSwitcher == SignalFillTop) ReadPos = 0;
+
+    AvarageSignal = 0;
+    OutputSignalSum = 0;
+
+    //for(int n = 0; n < 20; n++) AvarageSignal += SignalRegister[ReadPos + n]; AvarageSignal /= 20;
+    //for(int n = 0; n < AvarageSize; n++)
+    //{
+    //  if(std::abs(SignalRegister[ReadPos + n] - AvarageSignal) > 5)
+    //  OutputSignal += AvarageSignal;
+    //  else
+    //  OutputSignal += SignalRegister[ReadPos + n];
+    //} OutputSignal /= AvarageSize;
+
+    for(int n = 0; n < AvarageSize; n++)
+    {
+      OutputSignalSum += SignalRegister[ReadPos + n];
+    }
+      OutputSignal = OutputSignalSum/(AvarageSize);
 
 }
 
@@ -445,7 +477,8 @@ void DeviceTypeADC<N_CHAN>::ReinitDevice()
     multimode.Mode = ADC_MODE_INDEPENDENT;
 
     sConfig.Rank = ADC_REGULAR_RANK_1;
-    sConfig.SamplingTime = ADC_SAMPLETIME_32CYCLES_5;
+    //sConfig.SamplingTime = ADC_SAMPLETIME_64CYCLES_5;
+    sConfig.SamplingTime = ADC_SAMPLETIME_8CYCLES_5;
     sConfig.SingleDiff = ADC_SINGLE_ENDED;
     sConfig.OffsetNumber = ADC_OFFSET_NONE;
     sConfig.Offset = 0;
@@ -463,17 +496,20 @@ template<int N_CHAN>
 void DeviceTypeADC<N_CHAN>::SetMeasureFrequency(uint32_t Devider) 
 {
 //DEVIDER = ADC_CLOCK_ASYNC_DIV16-256
-//ADC_CLOCK = MC_CLOCK/DEVIDER; NUMBER_OPS = 6.5+32.5 = 39;
+//ADC_CLOCK = MC_CLOCK/DEVIDER; NUMBER_OPS = 6.5+64.5 = 71;
 //MEASURE_PERIOD = NUMBER_OPS/ADC_CLOCK;
 //MEASURE_PERIOD = NUMBER_OPS*DEVIDER/MC_CLOCK = NUMBER_OPS/ADC_CLOCK;
-//MEASURE_PERIOD = 39*8/(129*1000.000) = 39/(129*1000.000/8) = 22.07 micro;
+//MEASURE_PERIOD = 71*4/(129*1000.000) = 71/(129*1000.000/4) = 2.2015 micro;
 //DEVIDER = MEASURE_PERIOD*MC_CLOCK/NUMBER_OPS;
-// ADC_CLOCK_ASYNC_DIV64 = 19.34; REGISTRATION_TIME_MILLI = (19.34/1000)*10000 = 190 milli
-// ADC_CLOCK_ASYNC_DIV32 = 9.674; 
-// ADC_CLOCK_ASYNC_DIV16 = 4.837; 
-// ADC_CLOCK_ASYNC_DIV8  = 2.418; REGISTRATION_TIME = 24 milli
-// ADC_CLOCK_ASYNC_DIV4  = 1.209;                   
+// ADC_CLOCK_ASYNC_DIV64 = 35.224; REGISTRATION_TIME_MILLI = (35.224/1000)*10000 = 350 milli
+// ADC_CLOCK_ASYNC_DIV32 = 17.612;
+// ADC_CLOCK_ASYNC_DIV16 = 8.806;
+// ADC_CLOCK_ASYNC_DIV8  = 4.403; REGISTRATION_TIME = 44 milli
+// ADC_CLOCK_ASYNC_DIV4  = 2.2015;
 //ADC T_CONV_BASE 16bit-8.5 14bit-7.5 12bit-6.5 
+
+//ADC_SAMPLETIME_64CYCLES_5
+//ADC_SAMPLETIME_32CYCLES_5
 
 uint8_t PeriodMicro = 1000.000*44.5*Devider/(129*1000.000);
 eprintf("[ ADC SET PERIOD ] %d MICRO %d TIME_MEASURE ", PeriodMicro, 10000*PeriodMicro/1000);
@@ -481,6 +517,8 @@ eprintf("[ ADC SET PERIOD ] %d MICRO %d TIME_MEASURE ", PeriodMicro, 10000*Perio
 Device->Init.ClockPrescaler = Devider;
 ReinitDevice();
 }
+
+//template<int N_CHAN> uint16_t DeviceTypeADC<N_CHAN>::SignalRegister[SIGNAL_STORE_SIZE];
 
 
 //ADC_INPUT_DEVICE END

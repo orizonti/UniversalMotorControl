@@ -10,5 +10,7 @@
 *.elf
 *.obj
 *.o
+*.rar
+/BACK
 
 

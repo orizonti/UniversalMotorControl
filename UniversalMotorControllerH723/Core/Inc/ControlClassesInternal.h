@@ -22,7 +22,19 @@ extern UART_HandleTypeDef huart3;
 
 extern DeviceTypeConnectionUDP ConnectionRemote;
 extern osMessageQueueId_t QueueMessagePositionStateHandle;
+extern float Gain1;
+extern float Gain2;
 
+extern int32_t Offset1;
+extern int32_t Offset2;
+
+extern int32_t Offset2_1;
+extern int32_t Offset2_2;
+
+extern int16_t RegSignalInput[50];
+extern int16_t RegSignalOutput[50];
+extern int16_t* PosSignalInput;
+extern int16_t* PosSignalOutput;
 
 template<typename DEV_IN, typename DEV_OUT>
 class DeviceTypeScanator
@@ -39,12 +51,33 @@ class DeviceTypeScanator
   static DEV_IN*  DeviceInput1;
   static DEV_IN*  DeviceInput2;
 
+
+  void WriteTrack(int16_t Input, int16_t Output)
+  {
+
+	  //if(std::abs(Input) < 500)
+	  //{
+	//	  PosSignalInput = RegSignalInput;
+	//	  PosSignalOutput = RegSignalOutput;
+	//	  return;
+	  //}
+
+
+	  if(PosSignalInput < RegSignalInput+50)
+	  {
+	  *PosSignalInput = Input; PosSignalInput++;
+	  *PosSignalOutput = Output; PosSignalOutput++;
+	  }
+
+  }
+
   bool STATE_IDLE = true;
   bool STATE_MONITORING = false;
 
-       std::pair<float, float>  InputSignal{0,0};
-  std::pair<uint16_t, uint16_t> OutputSignalMeasure{0,0};
-  std::pair<uint16_t, uint16_t> ControlSignal{0,0};
+      std::pair<float, float>  InputSignal{0,0};
+  std::pair<int16_t, int16_t> SensorSignal{0,0};
+  std::pair<int16_t, int16_t> ControlSignal{0,0};
+  MessageStateType MessageState;
 
   explicit DeviceTypeScanator(DEV_IN* DevInput1, DEV_IN* DevInput2, DEV_OUT* DevOut) 
                             { 
@@ -54,35 +87,95 @@ class DeviceTypeScanator
                               DeviceInput2 = DevInput2;
                             }
 
-  MessageStateType MessageState;
+  decltype(SensorSignal) GetSensor()
+                                { SensorSignal.first  = (DeviceInput1->GetValue() + Offset1)*Gain1 + Offset2_1;
+                                  SensorSignal.second = (DeviceInput2->GetValue() + Offset2)*Gain2 + Offset2_1;
+                           return SensorSignal; }
 
-  void SetInput(MessageAimingDual& AimingCommand) 
+  decltype(ControlSignal) GetControl() { return ControlSignal; }
+  decltype(InputSignal)   GetInput()   { return InputSignal; }
+
+
+  friend void operator|(std::pair<int16_t,int16_t>& Signal, DeviceTypeScanator& Device)
+  {
+    Device.InputSignal.second = Signal.first;
+    Device.InputSignal.first  = Signal.second;
+    //Device.GenerateOutputSensorLoop();
+    //Device.GenerateOutputDirect();
+  }
+
+  void SetInput(MessageAimingDual& AimingCommand)
   {
     InputSignal.first  = AimingCommand.Channel1.Position;
     InputSignal.second = AimingCommand.Channel2.Position;
 
-    GenerateOutput();
-    OutputSignalMeasure.first  = DeviceInput1->GetValue();
-    OutputSignalMeasure.second = DeviceInput2->GetValue();
-
-    if(STATE_MONITORING) 
-    {
-    MessageState.Position1 = AimingCommand.Channel1.Position;
-    MessageState.Position2 = AimingCommand.Channel2.Position;
-     MessageState.Measure1 = OutputSignalMeasure.first;
-     MessageState.Measure2 = OutputSignalMeasure.second;
-    ConnectionRemote.PutMessageToSend(MessageState);
-    }
+    GenerateOutputSensorLoop();
+    //GenerateOutputDirect();
+    //GenerateOutputIntegrator();
   };
-  friend void operator|(MessageAimingDual& AimingCommand, DeviceTypeScanator& Device) { Device.SetInput(AimingCommand); }
 
-  void GenerateOutput() 
+  void GenerateOutputDirect()
   {
-    ControlSignal.second = InputSignal.first;
-    ControlSignal.first  = InputSignal.second;
+    ControlSignal.first   = InputSignal.first*1 ;
+    ControlSignal.second  = InputSignal.second*1;
+
+    WriteTrack(InputSignal.first, ControlSignal.first);
+
+    if(abs(ControlSignal.first) > 29000 || abs(ControlSignal.second) > 29000) return;
     ControlSignal | *DeviceControl;
   }
+
+  void GenerateOutputIntegrator()
+  {
+    ControlSignal.first   += InputSignal.first/1 ;
+    ControlSignal.second  += InputSignal.second/1;
+
+    WriteTrack(InputSignal.first, ControlSignal.first);
+
+    if(abs(ControlSignal.first) > 29000 || abs(ControlSignal.second) > 29000) return;
+    ControlSignal | *DeviceControl;
+  }
+
+  void GenerateOutputSensorLoop()
+  {
+
+    SensorSignal.first  = (DeviceInput1->GetValue() + Offset1)*Gain1 + Offset2_1;
+    SensorSignal.second = (DeviceInput2->GetValue() + Offset2)*Gain2 + Offset2_2;
+
+	//========================================================================
+    ControlSignal.first   = InputSignal.first  + SensorSignal.first *1; //ControlSignal.first = 0;
+    ControlSignal.second  = InputSignal.second + SensorSignal.second*1; //ControlSignal.second  = 0;
+    //WriteTrack(InputSignal.first, SensorSignal.first);
+
+	//if(std::abs(InputSignal.first) < 300 && std::abs(InputSignal.second) < 300)
+	//{
+    //ControlSignal.first   += InputSignal.first;
+    //ControlSignal.second  += InputSignal.second;
+	//}
+	//else
+	//{
+    //ControlSignal.first   = InputSignal.first  + SensorSignal.first *0.99; //ControlSignal.first = 0;
+    //ControlSignal.second  = InputSignal.second + SensorSignal.second*0.99; ControlSignal.second  = 0;
+	//}
+
+	//========================================================================
+
+    if(abs(ControlSignal.first) > 29000 || abs(ControlSignal.second) > 29000) return;
+
+    ControlSignal | *DeviceControl;
+
+    //WriteTrack(InputSignal.first, SensorSignal.first);
+  }
+
+  void SetToNull()
+  {
+	  ControlSignal.first = 0; ControlSignal.second = 0;
+	  ControlSignal | *DeviceControl;
+  }
   //=================================================
+  friend void operator|(MessageAimingDual& AimingCommand, DeviceTypeScanator& Device) { Device.SetInput(AimingCommand); }
+
+
 
   friend void operator|(MessageCommand& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
   void SetInput(MessageCommand& Message) 
@@ -284,17 +377,22 @@ void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::ProcessStepMeasure()
 {
   eprintf("======================================\r\n");
   eprintf("[ START STEP MEASURE RESPONSE ] AMPL: %d STORE: %d \r\n",Settings.Amplitude, MeasureStore->DATA.DataCapacity);
-  DeviceSignalInput->SetModeContinous(false);
+  DeviceSignalInput->SetModeReady(); osDelay(10);
+  //DeviceSignalInput->SetMeasureFrequency(ADC_CLOCK_ASYNC_DIV32);
   MeasureStore->DATA.Clear();
 
-  OutputSignal = 15000;
-  StartReadSeriesMeasure(); osDelay(10); MakeStartMarkOnMeasure();
 
-  OutputSignal | *DeviceControl; osDelay(20);
+  OutputSignal = 0; OutputSignal | *DeviceControl; osDelay(40);
+
+  StartReadSeriesMeasure(); osDelay(2); MakeStartMarkOnMeasure();
+
+  OutputSignal = 16000; OutputSignal | *DeviceControl; osDelay(40);
+
   EndReadSeriesMeasure();
 
   OutputSignal = 0; OutputSignal | *DeviceControl;
-  DeviceSignalInput->SetModeReady();
+  DeviceSignalInput->SetModeContinous(true);
+  //DeviceSignalInput->SetMeasureFrequency(ADC_CLOCK_ASYNC_DIV4);
   eprintf("======================================\r\n");
 }
 
@@ -410,3 +508,12 @@ template<typename DEV_IN, typename DEV_OUT> DEV_IN*  DeviceTypeScanator<DEV_IN,D
 template<typename DEV_IN, typename DEV_OUT> DEV_IN*  DeviceTypeScanator<DEV_IN,DEV_OUT>::DeviceInput2  = nullptr;
 
 #endif //GENERIC_INTERNAL_CONTROL_H
+
+    //if(STATE_MONITORING)
+    //{
+    //MessageState.Position1 = AimingCommand.Channel1.Position;
+    //MessageState.Position2 = AimingCommand.Channel2.Position;
+    // MessageState.Measure1 = SensorSignal.first;
+    // MessageState.Measure2 = SensorSignal.second;
+    //ConnectionRemote.PutMessageToSend(MessageState);
+    //}
