@@ -177,8 +177,8 @@ class DeviceTypeScanator
 
 
 
-  friend void operator|(MessageCommand& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
-  void SetInput(MessageCommand& Message) 
+  friend void operator|(CommandDevice<0>& Message, DeviceTypeScanator& Device) { Device.SetInput(Message); }
+  void SetInput(CommandDevice<0>& Message)
   { 
     if(Message.Command == COMMAND_MONITORING_TOGGLE) STATE_MONITORING = !STATE_MONITORING; 
            eprintf("[ SCANATOR SET MONITORING %d ] \r\n", STATE_MONITORING);
@@ -214,7 +214,7 @@ class ModuleTypeDelayMeasure
   static SignalType OutputSignal;
   static SignalType InputSignal;
 
-  static MessagePositionState MessagePosition;
+  static MessagePositionState<0> MessagePosition;
 
   bool STATE_IDLE = true;
 
@@ -243,22 +243,22 @@ class ModuleTypeDelayMeasure
   void LinkToDeviceLoopMonitor(DEV_OUT2* Device)  { DeviceLoopMonitor = Device;};
   void LinkToDeviceDelayMonitor(DEV_OUT3* Device) { DeviceDelayMonitor = Device;};
 
-  friend void operator|(MessagePositionState& InputPosition, ModuleTypeDelayMeasure& MeasureNode)
+  friend void operator|(MessagePositionState<0>& InputPosition, ModuleTypeDelayMeasure& MeasureNode)
   {
     MeasureNode.SetInput(InputPosition);
   }        
 
-  void SetInput(MessagePositionState& InputPosition) {InputSignal = InputPosition.Position1; }
+  void SetInput(MessagePositionState<0>& InputPosition) {InputSignal = InputPosition.Position1; }
 
-  friend void operator|(MessageCalibration& MessageCalibration, ModuleTypeDelayMeasure& MeasureNode)
+  friend void operator|(CommandCalibration& CommandCalibration, ModuleTypeDelayMeasure& MeasureNode)
   {
-    MeasureNode.PerformCommand(MessageCalibration);
+    MeasureNode.PerformCommand(CommandCalibration);
   }        
 
-  void PerformCommand(MessageCalibration& CommandMessage)
+  void PerformCommand(CommandCalibration& Message)
   {
-   if(CommandMessage.Command == COMMAND_MEASURE_PROCESS_START) { if(STATE_IDLE) StartProcessMeasureDelay(1);};
-   if(CommandMessage.Command == COMMAND_IDLE) StopProcess();
+   if(Message.Command == COMMAND_MEASURE_PROCESS_START) { if(STATE_IDLE) StartProcessMeasureDelay(1);};
+   if(Message.Command == COMMAND_IDLE) StopProcess();
   }
 };
 
@@ -291,9 +291,9 @@ class ModuleTypeResponceMeasure
   void LinkToDevice(DEV_OUT* Device) { DeviceControl = Device;};
   void LinkToDevice(DEV_IN* Device)  { DeviceSignalInput = Device;};
 
-    MessageCalibration  Settings;
+    CommandCalibration  Settings;
     MessageMeasureType* MeasureStore;
-  static MessagePositionState MessagePosition;
+  static MessagePositionState<0> MessagePosition;
 
   static TimerSoft<1,ModuleTypeResponceMeasure> TimerCalibration;
 
@@ -314,11 +314,11 @@ class ModuleTypeResponceMeasure
   void EndReadSeriesMeasure();
   void GetSeriesMeasure();
 
-  friend void operator>>(MessageCalibration& MessageCalibration, ModuleTypeResponceMeasure& CalibrationNode)
+  friend void operator>>(CommandCalibration& CommandCalibration, ModuleTypeResponceMeasure& CalibrationNode)
   {
-    CalibrationNode.PerformCommand(MessageCalibration);
+    CalibrationNode.PerformCommand(CommandCalibration);
   }
-               void PerformCommand(MessageCalibration& MessageCalibration);
+               void PerformCommand(CommandCalibration& CommandCalibration);
 
   private:
   static void MakeCalibrationStep(void* param) ;
@@ -432,10 +432,10 @@ void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::SetStateIdle()
 };
 
 template<typename DEV_IN, typename DEV_OUT>
-void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::PerformCommand(MessageCalibration& MessageCalibration)
+void ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::PerformCommand(CommandCalibration& CommandCalibration)
 {
       STATE_IDLE = false;
-      Settings = MessageCalibration; 
+      Settings = CommandCalibration;
   if(Settings.Command == COMMAND_GET_SERIES)     { GetSeriesMeasure();             return; };
   if(Settings.Command == COMMAND_MEASURE_LINEAR) { ProcessLinearCalibration();     return; };
   if(Settings.Command == COMMAND_MEASURE_STEP)   { ProcessStepMeasure();           return; };
@@ -459,7 +459,7 @@ void ModuleTypeDelayMeasure<DEV_OUT1, DEV_OUT2, DEV_OUT3>::MeasureClosedLoopDela
 //====================================================================================
 
 template<typename DEV_IN, typename DEV_OUT> 
-MessagePositionState ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::MessagePosition;
+MessagePositionState<0> ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::MessagePosition;
 
 template<typename DEV_IN, typename DEV_OUT> 
             DEV_OUT* ModuleTypeResponceMeasure<DEV_IN,DEV_OUT>::DeviceControl = nullptr;
@@ -500,7 +500,7 @@ template<typename DEV_OUT1, typename DEV_OUT2, typename DEV_OUT3>
        decltype(DEV_OUT2::OutputSignal) ModuleTypeDelayMeasure<DEV_OUT1,DEV_OUT2,DEV_OUT3>::InputSignal = 0;
        
 template<typename DEV_OUT1, typename DEV_OUT2, typename DEV_OUT3> 
-MessagePositionState ModuleTypeDelayMeasure<DEV_OUT1,DEV_OUT2,DEV_OUT3>::MessagePosition;
+MessagePositionState<0> ModuleTypeDelayMeasure<DEV_OUT1,DEV_OUT2,DEV_OUT3>::MessagePosition;
 
 //====================================================================================
 template<typename DEV_IN, typename DEV_OUT> DEV_OUT* DeviceTypeScanator<DEV_IN,DEV_OUT>::DeviceControl = nullptr;

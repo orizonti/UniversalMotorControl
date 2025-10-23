@@ -65,6 +65,7 @@ DMA_HandleTypeDef hdma_adc2;
 DAC_HandleTypeDef hdac1;
 
 FDCAN_HandleTypeDef hfdcan1;
+FDCAN_HandleTypeDef hfdcan2;
 
 OSPI_HandleTypeDef hospi1;
 
@@ -108,9 +109,9 @@ const osMessageQueueAttr_t QueueMonitoring_attributes = {
 /* USER CODE BEGIN PV */
 
 
-osMessageQueueId_t QueueMessageCalibrationHandle;
-const osMessageQueueAttr_t QueueMessageCalibration_attributes = {
-  .name = "QueueMessageCalibration"
+osMessageQueueId_t QueueCommandCalibrationHandle;
+const osMessageQueueAttr_t QueueCommandCalibration_attributes = {
+  .name = "QueueCommandCalibration"
 };
 
 osMessageQueueId_t QueueMessagePositionStateHandle;
@@ -120,6 +121,7 @@ const osMessageQueueAttr_t QueueMessagePositionState_attributes = {
 
 std::map<SPI_TypeDef*,bool*> FlagSwitchersSPI;
 std::map<ADC_TypeDef*,DeviceTypeADC<1>::StateSwitcher*> StateSwitchersADC;
+std::map<FDCAN_HandleTypeDef*,bool*> FlagSwitrchersCAN;
 
 /* USER CODE END PV */
 
@@ -142,22 +144,30 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 static void MX_FDCAN1_Init(void);
 static void MX_DAC1_Init(void);
+static void MX_FDCAN2_Init(void);
 void RunTaskMonitoring(void *argument);
 void RunTaskControl(void *argument);
 void RunTaskMeasure(void *argument);
 
 /* USER CODE BEGIN PFP */
+uint16_t ID0 = TypeRegister<CommandSetPosScanator   >::RegisterType(1);
+uint16_t ID1 = TypeRegister<CommandSetPosRotary     >::RegisterType(2);
+uint16_t ID2 = TypeRegister<CommandCalibration      >::RegisterType(3);
+uint16_t ID3 = TypeRegister<CommandDeviceController >::RegisterType(4);
+uint16_t ID4 = TypeRegister<MessagePositionState<0> >::RegisterType(5);
+uint16_t ID5 = TypeRegister<MessagePositionState<1> >::RegisterType(6);
+uint16_t ID6 = TypeRegister<MessageDeviceController >::RegisterType(7);
+uint16_t ID7 = TypeRegister<CommandCheckConnection  >::RegisterType(8);
+uint16_t ID8 = TypeRegister<CommandCloseConnection  >::RegisterType(9);
 
-//=========================================================================================
-uint8_t ID1 = TypeRegister<MessageAimingDual>::RegisterType();
-uint8_t ID2 = TypeRegister<MessageCalibration>::RegisterType();
-uint8_t ID3 = TypeRegister<MessageCommand>::RegisterType();
+uint16_t ID9  = TypeRegister<CommandDeviceLaserPointer>::RegisterType(0x110);
+uint16_t ID10 = TypeRegister<CommandDeviceLaserPower  >::RegisterType(0x120);
+uint16_t ID11 = TypeRegister<CommandDeviceFocusator   >::RegisterType(0x130);
 
-uint8_t ID4 = TypeRegister<MessagePositionState>::RegisterType();
-uint8_t ID5 = TypeRegister<MessageMeasure1>::RegisterType();
-
-uint8_t ID6 = TypeRegister<MessageCheckConnection>::RegisterType();
-uint8_t ID7 = TypeRegister<MessageCloseConnection>::RegisterType();
+uint16_t ID12 = TypeRegister<MessageDeviceLaserPower  >::RegisterType(0x210);
+uint16_t ID13 = TypeRegister<MessageDeviceLaserPointer>::RegisterType(0x210);
+uint16_t ID14 = TypeRegister<MessageDeviceFocusator   >::RegisterType(0x210);
+uint16_t ID15 = TypeRegister<MessageMeasure1          >::RegisterType(0x50);
 
 //=========================================================================================
 bool FLAG_MEASURE_THREAD_SUSPEND = false;
@@ -200,8 +210,8 @@ DeviceTypeDACExternalDual DeviceDACExternal{hspi2, std::make_pair(SPI2_CS_DAC_GP
 
 
 DeviceTypeConnectionUDP ConnectionRemote;
-//DeviceTypeScanator<DeviceTypeADC<1>, DeviceTypeDACExternalDual>
-//                        DeviceScanator{&DeviceADC1,&DeviceADC2,&DeviceDACExternal};
+DeviceTypeScanator<DeviceTypeADC<1>, DeviceTypeDACExternalDual>
+                        DeviceScanator{&DeviceADC1,&DeviceADC2,&DeviceDACExternal};
 
 //TO_DELETE
   std::pair<int16_t, int16_t> SensorScanator{0,0};
@@ -248,7 +258,7 @@ void ScanatorTestSinus()
   {
     COUNTER++; if(COUNTER == PERIOD) COUNTER = 0;
     DACControlSignal.first  = OFFSET2 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
-    DACControlSignal.second = OFFSET1 + AMPLITUDE*std::sin(COUNTER*2.0*M_PI/PERIOD);
+    DACControlSignal.second = OFFSET1 + AMPLITUDE*std::cos(COUNTER*2.0*M_PI/PERIOD);
     //DACControlSignal.second += DACControlSignal.second/50;
     //DACControlSignal.second += AMPLITUDE*0.13;
     DACControlSignal.second *= 0.95;
@@ -298,7 +308,7 @@ void PrintStartMessages()
 {
   uint16_t SysFreq = HAL_RCC_GetSysClockFreq()/1000000;
 
-  eprintf(" [ SCANATOR CONTROL ] \r\n");       HAL_Delay(100);
+  eprintf(" [ SCANATOR CONTROL TEST ] \r\n");       HAL_Delay(100);
   eprintf(" [ SYS FREQ:  %d ] \r\n", SysFreq); HAL_Delay(100);
   eprintf(" [ ADC CHANNELS:  %d %d] \r\n", ADC_CHANNEL_1, ADC_CHANNEL_2); HAL_Delay(100);
   eprintf(" [ ADC CHANNELS:  %d %d] \r\n", DeviceADC1.DeviceChannel, DeviceADC2.DeviceChannel); HAL_Delay(100);
@@ -315,6 +325,243 @@ void TimerMicrosecondsTickISR() { MicrosecondsCounter++; }
 
 void TimerControlDirectISR()
 {
+}
+
+class CanConnectionInterface
+{
+public:
+	explicit CanConnectionInterface(FDCAN_HandleTypeDef* CanDevice)
+	{
+		Device = CanDevice;
+		initTransmit();
+	}
+FDCAN_TxHeaderTypeDef   CanTxHeader;
+FDCAN_RxHeaderTypeDef   CanRxHeader;
+uint8_t               CanTxData[8];
+uint8_t               CanRxData[8];
+FDCAN_HandleTypeDef* Device = nullptr;
+bool FLAG_CAN_DATA_AVAILABLE = false;
+
+uint32_t MessageAvailable = 0;
+int Result = 0;
+CanConnectionInterface* connectionLinked = nullptr;
+void linkModule(CanConnectionInterface* connection) { connectionLinked = connection; }
+
+void initTransmit()
+{
+  CanTxHeader.Identifier = 0x1;
+  CanTxHeader.IdType      = FDCAN_STANDARD_ID;
+  CanTxHeader.TxFrameType = FDCAN_DATA_FRAME;
+  CanTxHeader.DataLength  = FDCAN_DLC_BYTES_8;
+  CanTxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+  CanTxHeader.BitRateSwitch       = FDCAN_BRS_OFF;
+  CanTxHeader.FDFormat            = FDCAN_CLASSIC_CAN;
+  CanTxHeader.TxEventFifoControl  = FDCAN_NO_TX_EVENTS;
+  CanTxHeader.MessageMarker = 0;
+}
+
+std::array<uint32_t,8> DLC_VECTOR = {FDCAN_DLC_BYTES_1, FDCAN_DLC_BYTES_2, FDCAN_DLC_BYTES_3, FDCAN_DLC_BYTES_4, FDCAN_DLC_BYTES_5, FDCAN_DLC_BYTES_6, FDCAN_DLC_BYTES_7, FDCAN_DLC_BYTES_8};
+void sendData(uint16_t ID, uint16_t Size, uint8_t* Data)
+{
+  CanTxHeader.Identifier = ID;
+  CanTxHeader.DataLength = DLC_VECTOR[Size-1];
+  CanTxHeader.MessageMarker = 0;
+
+  std::copy_n(Data, Size, CanTxData);
+
+  eprintf("SEND COMMAND %d \r\n", CanTxData[0]);
+  Result = HAL_FDCAN_AddMessageToTxFifoQ(Device, &CanTxHeader, CanTxData);
+  //Result = HAL_FDCAN_AddMessageToTxFifoQ(Device, &CanTxHeader, Data);
+
+
+  if(Result != HAL_OK)
+  {
+      Result =  HAL_FDCAN_GetError(Device);
+	  switch(Result)
+	  {
+	  case HAL_FDCAN_ERROR_PARAM :
+      eprintf("[ CAN ERROR PARAM ] \r\n");
+	  break;
+	  case HAL_FDCAN_ERROR_FIFO_FULL :
+      eprintf("[ CAN ERROR FIFO_FULL ] \r\n");
+	  break;
+	  default: eprintf("[ CAN SEND ERROR %d] \r\n" , Result);
+	  };
+  }
+  else
+  eprintf("[ CAN SEND SUCCESS ] \r\n");
+}
+
+//#define HAL_FDCAN_ERROR_NONE            ((uint32_t)0x00000000U) /*!< No error                                                               */
+//#define HAL_FDCAN_ERROR_TIMEOUT         ((uint32_t)0x00000001U) /*!< Timeout error                                                          */
+//#define HAL_FDCAN_ERROR_NOT_INITIALIZED ((uint32_t)0x00000002U) /*!< Peripheral not initialized                                             */
+//#define HAL_FDCAN_ERROR_NOT_READY       ((uint32_t)0x00000004U) /*!< Peripheral not ready                                                   */
+//#define HAL_FDCAN_ERROR_NOT_STARTED     ((uint32_t)0x00000008U) /*!< Peripheral not started                                                 */
+//#define HAL_FDCAN_ERROR_NOT_SUPPORTED   ((uint32_t)0x00000010U) /*!< Mode not supported                                                     */
+//#define HAL_FDCAN_ERROR_PARAM           ((uint32_t)0x00000020U) /*!< Parameter error                                                        */
+//#define HAL_FDCAN_ERROR_PENDING         ((uint32_t)0x00000040U) /*!< Pending operation                                                      */
+//#define HAL_FDCAN_ERROR_RAM_ACCESS      ((uint32_t)0x00000080U) /*!< Message RAM Access Failure                                             */
+//#define HAL_FDCAN_ERROR_FIFO_EMPTY      ((uint32_t)0x00000100U) /*!< Get element from empty FIFO                                            */
+//#define HAL_FDCAN_ERROR_FIFO_FULL       ((uint32_t)0x00000200U) /*!< Put element in full FIFO                                               */
+//#define HAL_FDCAN_ERROR_LOG_OVERFLOW    FDCAN_IR_ELO            /*!< Overflow of CAN Error Logging Counter                                  */
+//#define HAL_FDCAN_ERROR_RAM_WDG         FDCAN_IR_WDI            /*!< Message RAM Watchdog event occurred                                    */
+//#define HAL_FDCAN_ERROR_PROTOCOL_ARBT   FDCAN_IR_PEA            /*!< Protocol Error in Arbitration Phase (Nominal Bit Time is used)         */
+//#define HAL_FDCAN_ERROR_PROTOCOL_DATA   FDCAN_IR_PED            /*!< Protocol Error in Data Phase (Data Bit Time is used)                   */
+//#define HAL_FDCAN_ERROR_RESERVED_AREA   FDCAN_IR_ARA            /*!< Access to Reserved Address                                             */
+//#define HAL_FDCAN_ERROR_TT_GLOBAL_TIME  FDCAN_TTIR_GTE          /*!< Global Time Error : Synchronization deviation exceeded limit           */
+//#define HAL_FDCAN_ERROR_TT_TX_UNDERFLOW FDCAN_TTIR_TXU          /*!< Tx Count Underflow : Less Tx trigger than expected in one matrix cycle */
+//#define HAL_FDCAN_ERROR_TT_TX_OVERFLOW  FDCAN_TTIR_TXO          /*!< Tx Count Overflow : More Tx trigger than expected in one matrix cycle  */
+//#define HAL_FDCAN_ERROR_TT_SCHEDULE1    FDCAN_TTIR_SE1          /*!< Scheduling error 1                                                     */
+//#define HAL_FDCAN_ERROR_TT_SCHEDULE2    FDCAN_TTIR_SE2          /*!< Scheduling error 2                                                     */
+//#define HAL_FDCAN_ERROR_TT_NO_INIT_REF  FDCAN_TTIR_IWT          /*!< No system startup due to missing reference message                     */
+//#define HAL_FDCAN_ERROR_TT_NO_REF       FDCAN_TTIR_WT           /*!< Missing reference message                                              */
+//#define HAL_FDCAN_ERROR_TT_APPL_WDG     FDCAN_TTIR_AW           /*!< Application watchdog not served in time                                */
+//#define HAL_FDCAN_ERROR_TT_CONFIG       FDCAN_TTIR_CER          /*!< Error found in trigger list                                            */
+
+void receiveData()
+{
+	if(!FLAG_CAN_DATA_AVAILABLE) return;
+	HAL_FDCAN_GetRxMessage(Device, FDCAN_RX_FIFO0, &CanRxHeader, CanRxData);
+
+	//eprintf("GET CAN DATA: %d", CanRxHeader.DataLength);
+
+	if(CanRxHeader.Identifier == TypeRegister<CommandSetPos<0>>::GetTypeID())
+      CommandDispatcher<CommandSetPos<0>>::processDispatch((CommandSetPos<0>*)CanRxData);
+
+	if(CanRxHeader.Identifier == TypeRegister<CommandSetPos<1>>::GetTypeID())
+      CommandDispatcher<CommandSetPos<1>>::processDispatch((CommandSetPos<1>*)CanRxData);
+
+	if(CanRxHeader.Identifier == TypeRegister<CommandDeviceRedux<1>>::GetTypeID())
+      CommandDispatcher<CommandDeviceRedux<1>>::processDispatch((CommandDeviceRedux<1>*)CanRxData);
+
+	if(CanRxHeader.Identifier == TypeRegister<CommandDeviceRedux<0>>::GetTypeID())
+      CommandDispatcher<CommandDeviceRedux<0>>::processDispatch((CommandDeviceRedux<0>*)CanRxData);
+
+	if(CanRxHeader.Identifier == TypeRegister<CommandCheckConnection>::GetTypeID())
+      CommandDispatcher<CommandCheckConnection>::processDispatch((CommandCheckConnection*)CanRxData);
+
+	    MessageAvailable = HAL_FDCAN_GetRxFifoFillLevel(Device, FDCAN_RX_FIFO0);
+	if (MessageAvailable <= 0) { FLAG_CAN_DATA_AVAILABLE = false; return; }
+	receiveData();
+}
+
+void transmitData()
+{
+	if(!FLAG_CAN_DATA_AVAILABLE) return; FLAG_CAN_DATA_AVAILABLE = false;
+
+	HAL_FDCAN_GetRxMessage(Device, FDCAN_RX_FIFO0, &CanRxHeader, CanRxData);
+
+	if(connectionLinked != nullptr) connectionLinked->sendData(CanRxHeader.Identifier, CanRxHeader.DataLength, CanRxData);
+}
+
+
+void exposeFlagTransmission(std::map<FDCAN_HandleTypeDef*,bool*>& Flags)
+{
+	Flags[Device] = &FLAG_CAN_DATA_AVAILABLE;
+}
+
+};
+
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+{
+  if((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != RESET)
+  {
+    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
+   *FlagSwitrchersCAN[hfdcan] = true;
+  }
+}
+
+CanConnectionInterface connectionCan1(&hfdcan1);
+CanConnectionInterface connectionCan2(&hfdcan2);
+
+//void HAL_FDCAN_RxFifo1Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo1ITs)
+//{
+//  if((RxFifo1ITs & FDCAN_IT_RX_FIFO1_NEW_MESSAGE) != RESET)
+//  {
+//    HAL_FDCAN_ActivateNotification(hfdcan, FDCAN_IT_RX_FIFO1_NEW_MESSAGE, 0) ;
+//  }
+//}
+//=========================================================================================
+
+void printfRegisteredTypes()
+{
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandSetPos<0>>::GetTypeID(), TypeRegister<CommandSetPosScanator>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandSetPos<1>>::GetTypeID(), TypeRegister<CommandSetPosRotary>::GetTypeSize());
+
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandDevice<0>>::GetTypeID(), TypeRegister<CommandDevice<0>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandDevice<1>>::GetTypeID(), TypeRegister<CommandDevice<1>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandDevice<2>>::GetTypeID(), TypeRegister<CommandDevice<2>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandDevice<3>>::GetTypeID(), TypeRegister<CommandDevice<3>>::GetTypeSize());
+
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessageDevice<0>>::GetTypeID(), TypeRegister<MessageDevice<0>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessageDevice<1>>::GetTypeID(), TypeRegister<MessageDevice<1>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessageDevice<2>>::GetTypeID(), TypeRegister<MessageDevice<2>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessageDevice<3>>::GetTypeID(), TypeRegister<MessageDevice<3>>::GetTypeSize());
+
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandCalibration>::GetTypeID(), TypeRegister<CommandCalibration>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessagePositionState<0>>::GetTypeID(), TypeRegister<MessagePositionState<0>>::GetTypeSize());
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<CommandCheckConnection>::GetTypeID(), TypeRegister<CommandCheckConnection>::GetTypeSize());
+
+  eprintf("REGISTER TYPE %d SIZE %d \r\n", TypeRegister<MessageMeasure1>::GetTypeID(), TypeRegister<MessageMeasure1>::GetTypeSize());
+}
+int counter_debug = 0;
+
+void setPosDevice1(CommandSetPos<0>* command)
+{
+
+   DACControlSignal.first = command->POS_X*4;
+  DACControlSignal.second = command->POS_Y*4;
+  if(DACControlSignal.first > 50000) DACControlSignal.first = 50000;
+  if(DACControlSignal.second > 50000) DACControlSignal.second = 50000;
+
+     counter_debug++;
+  if(counter_debug > 100) eprintf("[GET COMMAND SCANATOR %d %d] \r\n", DACControlSignal.first, DACControlSignal.second);
+  if(counter_debug > 100) counter_debug = 0;
+  DeviceDACExternal.SetCoord(DACControlSignal);
+};
+void setPosDevice2(CommandSetPos<1>* command)
+{
+   DACControlSignal.first = command->POS_X*4;
+  DACControlSignal.second = command->POS_Y*4;
+  if(DACControlSignal.first > 50000) DACControlSignal.first = 50000;
+  if(DACControlSignal.second > 50000) DACControlSignal.second = 50000;
+
+     counter_debug++;
+  if(counter_debug > 100) eprintf("[GET COMMAND SCANATOR %d %d] \r\n", DACControlSignal.first, DACControlSignal.second);
+  if(counter_debug > 100) counter_debug = 0;
+
+  DeviceDACExternal.SetCoord(DACControlSignal);
+};
+
+void setCommandDevice1(CommandDeviceRedux<0>* command)
+{
+ eprintf("[GET COMMAND %d PARAM: %d] \r\n", command->Command, command->Param);
+
+  connectionCan2.sendData(TypeRegister<CommandDeviceRedux<0>>::GetTypeID(),
+		                        sizeof(CommandDeviceRedux<0>) , (uint8_t*)(command));
+};
+
+void setCommandDevice2(CommandDeviceRedux<1>* command)
+{
+ eprintf("[GET COMMAND %d PARAM: %d] \r\n", command->Command, command->Param);
+
+  connectionCan2.sendData(TypeRegister<CommandDeviceRedux<1>>::GetTypeID(),
+		                        sizeof(CommandDeviceRedux<1>) , (uint8_t*)(command));
+};
+
+void setCommandDevice2(CommandCheckConnection* command)
+{
+ eprintf("[CHECK CONNECTION \r\n]");
+};
+
+void initProcessingCommand()
+{
+	CommandDispatcher<CommandSetPos<0>>::setCallBack(setPosDevice1);
+	CommandDispatcher<CommandSetPos<1>>::setCallBack(setPosDevice2);
+
+	CommandDispatcher<CommandDeviceRedux<0>>::setCallBack(setCommandDevice1);
+	CommandDispatcher<CommandDeviceRedux<1>>::setCallBack(setCommandDevice2);
+	CommandDispatcher<CommandCheckConnection>::setCallBack(setCommandDevice2);
 }
 
 /* USER CODE END 0 */
@@ -368,6 +615,7 @@ int main(void)
   MX_TIM4_Init();
   MX_FDCAN1_Init();
   MX_DAC1_Init();
+  MX_FDCAN2_Init();
   /* USER CODE BEGIN 2 */
 
   PrintStartMessages();
@@ -380,8 +628,12 @@ int main(void)
 
   DeviceDACExternal.RegisterFlag(FlagSwitchersSPI);
 
-  //decltype(DeviceDACExternal.OutputSignal) Signal{0,0};
-  //Signal | DeviceDACExternal;
+  //======================================================================================================
+
+  //======================================================================================================
+
+  decltype(DeviceDACExternal.OutputSignal) Signal{0,0};
+  Signal | DeviceDACExternal;
 
   HAL_GPIO_WritePin(EBT_Reset_GPIO_Port,EBT_Reset_Pin, GPIO_PIN_RESET);
   HAL_Delay(200);
@@ -409,8 +661,8 @@ int main(void)
   QueueMonitoringHandle = osMessageQueueNew (16, sizeof(uint32_t), &QueueMonitoring_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
-  QueueMessageCalibrationHandle = osMessageQueueNew (4, sizeof(MessageCalibration), &QueueMessageCalibration_attributes);
-  QueueMessagePositionStateHandle = osMessageQueueNew (1, sizeof(MessagePositionState), &QueueMessagePositionState_attributes);
+  QueueCommandCalibrationHandle = osMessageQueueNew (4, sizeof(CommandCalibration), &QueueCommandCalibration_attributes);
+  QueueMessagePositionStateHandle = osMessageQueueNew (1, sizeof(MessagePositionState<0>), &QueueMessagePositionState_attributes);
 
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
@@ -741,29 +993,29 @@ static void MX_FDCAN1_Init(void)
   hfdcan1.Instance = FDCAN1;
   hfdcan1.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
   hfdcan1.Init.Mode = FDCAN_MODE_NORMAL;
-  hfdcan1.Init.AutoRetransmission = DISABLE;
+  hfdcan1.Init.AutoRetransmission = ENABLE;
   hfdcan1.Init.TransmitPause = DISABLE;
   hfdcan1.Init.ProtocolException = DISABLE;
-  hfdcan1.Init.NominalPrescaler = 16;
-  hfdcan1.Init.NominalSyncJumpWidth = 1;
-  hfdcan1.Init.NominalTimeSeg1 = 1;
-  hfdcan1.Init.NominalTimeSeg2 = 1;
-  hfdcan1.Init.DataPrescaler = 1;
-  hfdcan1.Init.DataSyncJumpWidth = 1;
-  hfdcan1.Init.DataTimeSeg1 = 1;
+  hfdcan1.Init.NominalPrescaler = 5;
+  hfdcan1.Init.NominalSyncJumpWidth = 4;
+  hfdcan1.Init.NominalTimeSeg1 = 20;
+  hfdcan1.Init.NominalTimeSeg2 = 4;
+  hfdcan1.Init.DataPrescaler = 5;
+  hfdcan1.Init.DataSyncJumpWidth = 4;
+  hfdcan1.Init.DataTimeSeg1 = 20;
   hfdcan1.Init.DataTimeSeg2 = 1;
   hfdcan1.Init.MessageRAMOffset = 0;
   hfdcan1.Init.StdFiltersNbr = 0;
   hfdcan1.Init.ExtFiltersNbr = 0;
-  hfdcan1.Init.RxFifo0ElmtsNbr = 0;
+  hfdcan1.Init.RxFifo0ElmtsNbr = 2;
   hfdcan1.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.RxFifo1ElmtsNbr = 0;
   hfdcan1.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
-  hfdcan1.Init.RxBuffersNbr = 0;
+  hfdcan1.Init.RxBuffersNbr = 1;
   hfdcan1.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
   hfdcan1.Init.TxEventsNbr = 0;
-  hfdcan1.Init.TxBuffersNbr = 0;
-  hfdcan1.Init.TxFifoQueueElmtsNbr = 0;
+  hfdcan1.Init.TxBuffersNbr = 1;
+  hfdcan1.Init.TxFifoQueueElmtsNbr = 4;
   hfdcan1.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
   hfdcan1.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
   if (HAL_FDCAN_Init(&hfdcan1) != HAL_OK)
@@ -772,7 +1024,114 @@ static void MX_FDCAN1_Init(void)
   }
   /* USER CODE BEGIN FDCAN1_Init 2 */
 
+  FDCAN_FilterTypeDef sFilterConfig;
+
+  sFilterConfig.IdType = FDCAN_STANDARD_ID;
+  sFilterConfig.FilterIndex = 0;
+  sFilterConfig.FilterType = FDCAN_FILTER_RANGE;
+  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+  sFilterConfig.FilterID1 = 0x0;
+  sFilterConfig.FilterID2 = 0x32;
+      eprintf("CAN FILTER CONFIG %d \r\n", 0x32);
+  if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
+  {
+      eprintf("CAN FILTER CONFIG ERROR %d \r\n", hfdcan1.ErrorCode);
+	  Error_Handler();
+  }
+
+  sFilterConfig.IdType = FDCAN_STANDARD_ID;
+  sFilterConfig.FilterIndex = 1;
+  sFilterConfig.FilterType = FDCAN_FILTER_MASK;
+  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+  sFilterConfig.FilterID1 = 0x0;
+  sFilterConfig.FilterID2 = 0x33;
+      eprintf("CAN FILTER CONFIG %d \r\n", 0x33);
+  if (HAL_FDCAN_ConfigFilter(&hfdcan1, &sFilterConfig) != HAL_OK)
+  {
+      eprintf("CAN FILTER CONFIG ERROR %d \r\n", hfdcan1.ErrorCode);
+	  Error_Handler();
+  }
   /* USER CODE END FDCAN1_Init 2 */
+
+}
+
+/**
+  * @brief FDCAN2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_FDCAN2_Init(void)
+{
+
+  /* USER CODE BEGIN FDCAN2_Init 0 */
+
+  /* USER CODE END FDCAN2_Init 0 */
+
+  /* USER CODE BEGIN FDCAN2_Init 1 */
+
+  /* USER CODE END FDCAN2_Init 1 */
+  hfdcan2.Instance = FDCAN2;
+  hfdcan2.Init.FrameFormat = FDCAN_FRAME_CLASSIC;
+  hfdcan2.Init.Mode = FDCAN_MODE_NORMAL;
+  hfdcan2.Init.AutoRetransmission = ENABLE;
+  hfdcan2.Init.TransmitPause = DISABLE;
+  hfdcan2.Init.ProtocolException = DISABLE;
+  hfdcan2.Init.NominalPrescaler = 10;
+  hfdcan2.Init.NominalSyncJumpWidth = 4;
+  hfdcan2.Init.NominalTimeSeg1 = 20;
+  hfdcan2.Init.NominalTimeSeg2 = 4;
+  hfdcan2.Init.DataPrescaler = 10;
+  hfdcan2.Init.DataSyncJumpWidth = 4;
+  hfdcan2.Init.DataTimeSeg1 = 20;
+  hfdcan2.Init.DataTimeSeg2 = 4;
+  hfdcan2.Init.MessageRAMOffset = 1280;
+  hfdcan2.Init.StdFiltersNbr = 1;
+  hfdcan2.Init.ExtFiltersNbr = 0;
+  hfdcan2.Init.RxFifo0ElmtsNbr = 2;
+  hfdcan2.Init.RxFifo0ElmtSize = FDCAN_DATA_BYTES_8;
+  hfdcan2.Init.RxFifo1ElmtsNbr = 0;
+  hfdcan2.Init.RxFifo1ElmtSize = FDCAN_DATA_BYTES_8;
+  hfdcan2.Init.RxBuffersNbr = 1;
+  hfdcan2.Init.RxBufferSize = FDCAN_DATA_BYTES_8;
+  hfdcan2.Init.TxEventsNbr = 0;
+  hfdcan2.Init.TxBuffersNbr = 1;
+  hfdcan2.Init.TxFifoQueueElmtsNbr = 4;
+  hfdcan2.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
+  hfdcan2.Init.TxElmtSize = FDCAN_DATA_BYTES_8;
+  if (HAL_FDCAN_Init(&hfdcan2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN FDCAN2_Init 2 */
+
+  FDCAN_FilterTypeDef sFilterConfig;
+
+  sFilterConfig.IdType = FDCAN_STANDARD_ID;
+  sFilterConfig.FilterIndex = 0;
+  sFilterConfig.FilterType = FDCAN_FILTER_RANGE;
+  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+  sFilterConfig.FilterID1 = 0x1;
+  sFilterConfig.FilterID2 = 0x32;
+      eprintf("CAN FILTER CONFIG %d \r\n", 0x32);
+  if (HAL_FDCAN_ConfigFilter(&hfdcan2, &sFilterConfig) != HAL_OK)
+  {
+      eprintf("CAN FILTER CONFIG ERROR %d \r\n", hfdcan2.ErrorCode);
+	  Error_Handler();
+  }
+
+  sFilterConfig.IdType = FDCAN_STANDARD_ID;
+  sFilterConfig.FilterIndex = 1;
+  sFilterConfig.FilterType = FDCAN_FILTER_MASK;
+  sFilterConfig.FilterConfig = FDCAN_FILTER_TO_RXFIFO0;
+  sFilterConfig.FilterID1 = 0x1;
+  sFilterConfig.FilterID2 = 0x33;
+      eprintf("CAN FILTER CONFIG %d \r\n", 0x33);
+  if (HAL_FDCAN_ConfigFilter(&hfdcan2, &sFilterConfig) != HAL_OK)
+  {
+      eprintf("CAN FILTER CONFIG ERROR %d \r\n", hfdcan2.ErrorCode);
+	  Error_Handler();
+  }
+  /* USER CODE END FDCAN2_Init 2 */
 
 }
 
@@ -850,7 +1209,7 @@ static void MX_SPI2_Init(void)
   hspi2.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi2.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi2.Init.NSS = SPI_NSS_SOFT;
-  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
+  hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi2.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi2.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi2.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -1387,7 +1746,7 @@ void ADCTest()
 void InitMessageProcessing(DispatcherType* Dispatcher)
 {
        MessageAimingDual* MessageAiming   = nullptr;
-    MessagePositionState* MessagePosition = nullptr;
+    MessagePositionState<0>* MessagePosition = nullptr;
 
     std::pair<int16_t,int16_t> ControlOutputSignal;
 
@@ -1405,48 +1764,47 @@ void InitMessageProcessing(DispatcherType* Dispatcher)
        //                                            (int)MessageAiming->Channel2.Position);
     });
 
-    Dispatcher->AppendCallback<MessagePositionState> ( [MessagePosition](MessageType& Message) mutable
+    Dispatcher->AppendCallback<MessagePositionState<0>> ( [MessagePosition](MessageType& Message) mutable
     {
        
-       MessagePosition = DispatcherType::ExtractData<MessagePositionState>(&Message);
+       MessagePosition = DispatcherType::ExtractData<MessagePositionState<0>>(&Message);
 
        *MessagePosition | ModuleDelayMeasureConnection;
     });
 
 
-    Dispatcher->AppendCallback<MessageCalibration> ( [](MessageType& Message)
+    Dispatcher->AppendCallback<CommandCalibration> ( [](MessageType& Message)
     {
-       auto CommandCalibration = DispatcherType::ExtractData<MessageCalibration>(&Message);
+       auto Command = DispatcherType::ExtractData<CommandCalibration>(&Message);
 
-       if(CommandCalibration->NodeType == MODULE_TYPE_DELAY_MEASURE) *CommandCalibration | ModuleDelayMeasureConnection;
+       if(Command->NodeType == MODULE_TYPE_DELAY_MEASURE) *Command | ModuleDelayMeasureConnection;
 
-       if(CommandCalibration->NodeType == MODULE_TYPE_RESPONCE_MEASURE)
-	     osMessageQueuePut(QueueMessageCalibrationHandle, CommandCalibration, 0, 0);
+       if(Command->NodeType == MODULE_TYPE_RESPONCE_MEASURE)
+	     osMessageQueuePut(QueueCommandCalibrationHandle, Command, 0, 0);
 
-       if(CommandCalibration->NodeType == MODULE_TYPE_RESPONCE_MEASURE  && FLAG_MEASURE_THREAD_SUSPEND) 
+       if(Command->NodeType == MODULE_TYPE_RESPONCE_MEASURE  && FLAG_MEASURE_THREAD_SUSPEND)
        { 
         osThreadResume(TaskMeasureHandle);  FLAG_MEASURE_THREAD_SUSPEND = false; eprintf("MEASURE TASK RESUME \r\n");
        }
     });
 
-    Dispatcher->AppendCallback<MessageCommand> ( [](MessageType& Message)
+    Dispatcher->AppendCallback<CommandDevice<0>> ( [](MessageType& Message)
     {
-       auto Command = DispatcherType::ExtractData<MessageCommand>(&Message);
+       auto Command = DispatcherType::ExtractData<CommandDevice<0>>(&Message);
 
          //if(Command->NodeType == DEVICE_TYPE_SCANATOR) *Command | DeviceScanator;
-
     });
 
 
-    Dispatcher->AppendCallback<MessageCheckConnection> ( [](MessageType& Message)
+    Dispatcher->AppendCallback<CommandCheckConnection> ( [](MessageType& Message)
     {
-       auto MessageCheck = DispatcherType::ExtractData<MessageCheckConnection>(&Message);
+       auto MessageCheck = DispatcherType::ExtractData<CommandCheckConnection>(&Message);
        eprintf("[ CHECK CONNECTION MESSAGE ] \r\n");
     });
 
-    Dispatcher->AppendCallback<MessageCloseConnection> ( [](MessageType& Message)
+    Dispatcher->AppendCallback<CommandCloseConnection> ( [](MessageType& Message)
     {
-       auto MessageClose = DispatcherType::ExtractData<MessageCloseConnection>(&Message);
+       auto MessageClose = DispatcherType::ExtractData<CommandCloseConnection>(&Message);
        eprintf("[ CLOSE CONNECTION MESSAGE ] \r\n");
     });
 }
@@ -1463,23 +1821,25 @@ void RunTaskControl(void *argument)
   /* Infinite loop */
 
   eprintf("[START CONTROl TASK] \r\n"); osDelay(2);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID1, TypeRegister<MessageAimingDual>::GetTypeSize()); osDelay(10);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID2, TypeRegister<MessageCalibration>::GetTypeSize()); osDelay(10);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID3, TypeRegister<MessageCommand>::GetTypeSize()); osDelay(10);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID4, TypeRegister<MessagePositionState>::GetTypeSize()); osDelay(10);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID5, TypeRegister<MessageMeasure1>::GetTypeSize()); osDelay(10);
-  eprintf("REGISTER MESSAGE TYPE %d SIZE %d \r\n", ID6, TypeRegister<MessageCheckConnection>::GetTypeSize()); osDelay(10);
 
+  printfRegisteredTypes();
+  initProcessingCommand();
+
+
+  connectionCan1.exposeFlagTransmission(FlagSwitrchersCAN);
+  connectionCan2.exposeFlagTransmission(FlagSwitrchersCAN);
+
+  CommandCheckConnection commandCheck;
   //HAL_TIM_Base_Start_IT(&htim1);
   //HAL_TIM_Base_Start_IT(&htim6);
   //===============================================================
-       MessagePositionState DevicePosition;
+       MessagePositionState<0> DevicePosition;
   MessageInternalMonitoring MessageMonitoring;
 
   DispatcherType Dispatcher; InitMessageProcessing(&Dispatcher);
             ConnectionRemote.InitModule();
   //===============================================================
-  MessageGeneric<MessagePositionState, HEADER_TYPE> MessagePosition;
+  MessageGeneric<MessagePositionState<0>, HEADER_TYPE> MessagePosition;
 
   //DeviceADC1.SetModeReady();
   //DeviceADC2.SetModeReady();
@@ -1492,23 +1852,47 @@ void RunTaskControl(void *argument)
 
   //DeviceScanator.SetToNull();
 
-  ScanatorTestSinus();
+  osDelay(5000);
+  //ScanatorTestSinus();
   //ADCTest();
 
+  //FDCAN INIT BEGIN
+  if(HAL_FDCAN_Start(&hfdcan1) != HAL_OK) eprintf(" [CAN START ERROR] \r\n");
+  if(HAL_FDCAN_ActivateNotification(&hfdcan1, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK) Error_Handler();
+
+  if(HAL_FDCAN_Start(&hfdcan2) != HAL_OK) eprintf(" [CAN START ERROR] \r\n");
+  if(HAL_FDCAN_ActivateNotification(&hfdcan2, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0) != HAL_OK) Error_Handler();
+
+  eprintf(" [CAN START SUCCESS] \r\n");
+
+  uint8_t data[20];
+  data[0] = 0xCC;
+  data[1] = 0xCC;
+  data[2] = 0xFF;
+  data[3] = 0xFF;
+
+  int Result = HAL_OK;
   while(true)
   {
-	  ConnectionRemote.GetIncommingMessages();
-	 *ConnectionRemote.RingBufferMessages | Dispatcher;
-      ConnectionRemote.SendPendingMessage();
+	 // ConnectionRemote.GetIncommingMessages();
+	 //*ConnectionRemote.RingBufferMessages | Dispatcher;
+     // ConnectionRemote.SendPendingMessage();
 
-    if(counter >= 1000)
-    {
-    	//SensorScanator = DeviceScanator.GetSensor();
-    	//ControlScanator = DeviceScanator.GetControl();
-    	//InputScanator = DeviceScanator.GetInput();
-    	eprintf("[ WAIT COMMAND ] \r\n");
-    	counter = 0;
-    }  counter++;
+	  //eprintf("[ SEND COMMAND ]  ");
+      connectionCan1.receiveData();
+      //connectionCan2.receiveData();
+
+      //connectionCan1.sendData(0x22,4 , data);
+      //connectionCan2.sendData(0x22,4 , data);
+
+    //if(counter >= 5000)
+    //{
+    //	//SensorScanator = DeviceScanator.GetSensor();
+    //	//ControlScanator = DeviceScanator.GetControl();
+    //	//InputScanator = DeviceScanator.GetInput();
+    //	eprintf("[ WAIT COMMAND ] \r\n");
+    //	counter = 0;
+    //}  counter++;
 
     //ModuleDelayMeasureConnection.MeasureClosedLoopDelay();
     //ModuleDelayMeasureControlLoop.MeasureClosedLoopDelay();
@@ -1521,6 +1905,22 @@ void RunTaskControl(void *argument)
 }
 
 /* USER CODE BEGIN Header_RunTaskMeasure */
+
+//  Result = HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &CanTxHeader, data);
+//  if(Result != HAL_OK)
+//  {
+//      Result =  HAL_FDCAN_GetError(&hfdcan1);
+//	  switch(Result)
+//	  {
+//	  case HAL_FDCAN_ERROR_PARAM :
+//      eprintf("[ CAN ERROR PARAM ] \r\n");
+//	  break;
+//	  default: eprintf("[ CAN SEND ERROR %d] \r\n" , Result);
+//	  };
+//
+//  }
+//  else
+//  eprintf("[SUCCESS ] \r\n");
 /**
 * @brief Function implementing the TaskMeasure thread.
 * @param argument: Not used
@@ -1535,14 +1935,14 @@ void RunTaskMeasure(void *argument)
 
   //ModuleResponceMeasure.InitModule();
 
-  MessageCalibration CommandCalibration;
+  CommandCalibration CommandCalibration;
 
   FLAG_MEASURE_THREAD_SUSPEND = true; osThreadSuspend(TaskMeasureHandle);
   for(;;)
   {
-      if(osMessageQueueGetCount(QueueMessageCalibrationHandle) != 0)
+      if(osMessageQueueGetCount(QueueCommandCalibrationHandle) != 0)
       {
-	     osMessageQueueGet(QueueMessageCalibrationHandle, &CommandCalibration, 0, 0);
+	     osMessageQueueGet(QueueCommandCalibrationHandle, &CommandCalibration, 0, 0);
 	     //CommandCalibration >> ModuleResponceMeasure;
       }
 
@@ -1635,6 +2035,8 @@ void Error_Handler(void)
   while (1)
   {
   }
+  eprintf(" [CAN ERROR]  \r\n");
+
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT

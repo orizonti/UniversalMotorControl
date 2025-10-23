@@ -53,7 +53,7 @@ private:
 
 	W5500InterfaceClass* EthernetInterface;
 
-	MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC> MessagePosition;
+	MessageGeneric<MessagePositionState<0>,MESSAGE_HEADER_GENERIC> MessagePosition;
 	MessageGeneric<MessageMeasure1, MESSAGE_HEADER_GENERIC>* MessageMeasure = nullptr;
 
 	//uint8_t  IPRemote[4] = {192,168,1,113};
@@ -77,13 +77,13 @@ public:
 
 	void sendTestMessage();
 
-	void sendMessage(MessagePositionState& Message);
-	void PutMessageToSend(MessagePositionState& Message); 
+	void sendMessage(MessagePositionState<0>& Message);
+	void PutMessageToSend(MessagePositionState<0>& Message);
 
 	void SetInput(uint16_t Position) 
 	{ 
 		MessagePosition.DATA.Position1 = Position; 
-	    sendCommand((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
+	    sendCommand((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState<0>,MESSAGE_HEADER_GENERIC>));
 	};
 
 	void PutMessageToSend(uint8_t* data, uint16_t size) { DataToSend.emplace(std::pair<uint8_t*, uint16_t>(data,size)); };
@@ -101,7 +101,7 @@ public:
 	}
 
 	friend void operator|(uint16_t Position, DeviceTypeConnectionUDP& Connection) { Connection.SetInput(Position); }
-	friend void operator|(MessagePositionState& Message, DeviceTypeConnectionUDP& Connection) { Connection.sendMessage(Message); }
+	friend void operator|(MessagePositionState<0>& Message, DeviceTypeConnectionUDP& Connection) { Connection.sendMessage(Message); }
 private:
 	uint8_t sendDataChunked(uint8_t* Data, uint16_t DataSize);
 };

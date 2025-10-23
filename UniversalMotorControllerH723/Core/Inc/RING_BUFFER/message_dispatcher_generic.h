@@ -51,14 +51,14 @@ void MessageDispatcher<H,RingBufferType>::DispatchNextMessage(RingBufferType& Ri
 
     if(!TypeRegister<>::isTypeValid(Message.HEADER.MESSAGE_IDENT)) 
     {
-    eprintf("MESSAGE NOT REGISTERED: %d \r\n", Message.HEADER.MESSAGE_IDENT); return;
+    eprintf("MESSAGE NOT REGISTERED: %d", Message.HEADER.MESSAGE_IDENT); return;
     }
     
     if(CallList[Message.HEADER.MESSAGE_IDENT] != nullptr && 
                 Message.HEADER.MESSAGE_IDENT  <= CallList.size())
        CallList[Message.HEADER.MESSAGE_IDENT](Message);
     else
-    eprintf("CALLBACK NOT REGISTERED TO MESSAGE: %d \r\n", Message.HEADER.MESSAGE_IDENT);
+    eprintf("CALLBACK NOT REGISTERED TO MESSAGE: %d", Message.HEADER.MESSAGE_IDENT);
 
 
     if(RingBuffer.isMessageAvailable()) DispatchNextMessage(RingBuffer);

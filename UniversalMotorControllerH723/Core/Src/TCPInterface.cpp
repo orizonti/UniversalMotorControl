@@ -78,16 +78,16 @@ void DeviceTypeConnectionUDP::sendData(uint8_t* Data, uint16_t DataSize)
 	 ResultTransmission = sendDataChunked(Data, DataSize);
 }
 
-void DeviceTypeConnectionUDP::sendMessage(MessagePositionState& Message)
+void DeviceTypeConnectionUDP::sendMessage(MessagePositionState<0>& Message)
 {
                          MessagePosition.DATA = Message;
-	  sendData((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
+	  sendData((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState<0>,MESSAGE_HEADER_GENERIC>));
 }
 
-void DeviceTypeConnectionUDP::PutMessageToSend(MessagePositionState& Message)
+void DeviceTypeConnectionUDP::PutMessageToSend(MessagePositionState<0>& Message)
 {
                          MessagePosition.DATA = Message;
-	  PutMessageToSend((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState,MESSAGE_HEADER_GENERIC>));
+	  PutMessageToSend((uint8_t*)(&MessagePosition), sizeof(MessageGeneric<MessagePositionState<0>,MESSAGE_HEADER_GENERIC>));
 }
 
 uint8_t DeviceTypeConnectionUDP::sendDataChunked(uint8_t* Data, uint16_t DataSize)

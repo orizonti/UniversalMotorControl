@@ -12,5 +12,7 @@
 *.o
 *.rar
 /BACK
+/Release
+/Debug
 
 

@@ -1,6 +1,0 @@
-../Core/Src/UtiliteFunctions.cpp:18:6:)	16	static
-../Core/Src/UtiliteFunctions.cpp:30:6:void eprintf_repeat()	8	static
-../Core/Src/UtiliteFunctions.cpp:62:6:void WriteDACValue(int16_t, uint8_t, uint8_t*)	32	static
-../Core/Src/UtiliteFunctions.cpp:127:6:void TestSinusDAC_Internal()	48	static
-../Core/Inc/DeviceSignalInterfaces.h:214:7:void DeviceDACControl<__SPI_HandleTypeDef, V, 1, 3>::SetValue(const V&) [with V = short int]	8	static
-../Core/Src/UtiliteFunctions.cpp:93:6:void TestSinusDAC_SPI()	40	static
